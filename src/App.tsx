@@ -30,6 +30,7 @@ import {
   optimal,
   virtual,
   interpolate,
+  followRange,
   blocksOptimal,
   opportunities,
   optimalWith,
@@ -384,8 +385,10 @@ export default function App() {
     setExact(null);
     setCursor(d);
   };
-  const live = useRef({ a, at, range });
-  live.current = { a, at, range };
+  const live = useRef({ a, at, range, busy: false });
+  live.current = { a, at, range, busy: busyA || busyB };
+  const lastTick = useRef(0);
+  const toggle = useRef<() => void>(() => {});
   const goTo = (t: number) => {
     const { a: A } = live.current;
     if (!A) return;
@@ -394,7 +397,22 @@ export default function App() {
     if (!Number.isFinite(d)) return;
     setExact(time);
     setCursor(d);
+    // A zoomed window follows the cursor instead of leaving it behind.
+    setRange((r) => followRange(r, d, A.length));
   };
+  // Play or pause. From the very end it starts over at the beginning of the lap, with the
+  // zoom window moved back to the start.
+  const togglePlay = () => {
+    const { a: A, range: r } = live.current;
+    if (!A) return;
+    if (!playing && cursor >= A.length - 1) {
+      const width = r[1] - r[0];
+      setRange(width >= A.length - 1 ? [0, A.length] : [0, width]);
+      moveCursor(0);
+    }
+    setPlaying(!playing);
+  };
+  toggle.current = togglePlay;
   const elapsed = a ? at - a.lap.start : 0;
   const bcursor =
     settings.mode === "time" && b
@@ -459,40 +477,69 @@ export default function App() {
         STEP_MS *
         (e.shiftKey ? SHIFT_STEP_FACTOR : 1);
       // Step by time, so a stop is crossed at the same pace as everything else.
-      const { a: A, at: now, range: r } = live.current;
-      const t = now + ms;
-      const d = interpolate(
-        A.times,
-        A.distance,
-        Math.max(A.times[0], Math.min(A.times[A.times.length - 1], t)),
-      );
-      if (Number.isFinite(d) && d >= r[0] && d <= r[1]) goTo(t);
-      else if (Number.isFinite(d))
-        moveCursor(Math.max(r[0], Math.min(r[1], d)));
+      goTo(live.current.at + ms);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [a, tab]);
+  // Space plays and pauses, wherever the focus is except where a space is typed or means
+  // something else. A button that was just clicked keeps focus, so Space must not press
+  // it again.
+  useEffect(() => {
+    if (!a || (tab !== "Analyze" && tab !== "Video sync")) return;
+    const mine = (e: KeyboardEvent) => {
+      if (e.code !== "Space" && e.key !== " ") return false;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
+      if (document.querySelector(".modal-backdrop")) return false;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName ?? "";
+      const type = (el as HTMLInputElement | null)?.type;
+      if (
+        el?.isContentEditable ||
+        ["SELECT", "TEXTAREA", "VIDEO", "SUMMARY", "OPTION"].includes(tag) ||
+        (tag === "INPUT" && !["range", "color", "button"].includes(type ?? ""))
+      )
+        return false;
+      return true;
+    };
+    const down = (e: KeyboardEvent) => {
+      if (!mine(e)) return;
+      e.preventDefault();
+      if (!e.repeat) toggle.current();
+    };
+    // Buttons press on key release, so block that as well.
+    const up = (e: KeyboardEvent) => {
+      if (mine(e)) e.preventDefault();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [a, tab]);
+  // Playback runs on time, not position, and carries on past the edge of a zoomed window,
+  // which scrolls along with it. It stops only at the end of the lap.
   useEffect(() => {
     if (!playing || !a) return;
-    let last = performance.now();
+    lastTick.current = performance.now();
     const timer = setInterval(() => {
       const now = performance.now(),
-        dt = now - last;
-      last = now;
-      if (busyA || busyB) return;
-      // Advance by time, not position: position does not change during a stop.
-      const t = live.current.at + dt;
-      const d = interpolate(a.times, a.distance, t);
-      if (!Number.isFinite(d) || d >= range[1]) {
+        dt = now - lastTick.current;
+      lastTick.current = now;
+      const { a: A, at: here, busy } = live.current;
+      if (busy) return;
+      const t = here + dt;
+      const d = interpolate(A.times, A.distance, t);
+      if (!Number.isFinite(d) || d >= A.length) {
         setPlaying(false);
-        moveCursor(range[1]);
+        goTo(A.times[A.times.length - 1]);
         return;
       }
       goTo(t);
     }, 80);
     return () => clearInterval(timer);
-  }, [playing, a, range, busyA, busyB]);
+  }, [playing, a]);
   // Sessions, projects and sync files, from the file picker or dropped anywhere on the
   // window. Each file is handled on its own, so one bad file does not stop the rest.
   async function importFiles(list: File[]) {
@@ -1211,10 +1258,7 @@ export default function App() {
                     <button
                       className="play"
                       aria-label={playing ? "Pause playback" : "Play playback"}
-                      onClick={() => {
-                        if (cursor >= range[1]) moveCursor(range[0]);
-                        setPlaying(!playing);
-                      }}
+                      onClick={togglePlay}
                     >
                       {playing ? <Pause size={16} /> : <Play size={16} />}
                     </button>
@@ -1392,6 +1436,8 @@ export default function App() {
                       cursor={cursor}
                       range={range}
                       onCursor={moveCursor}
+                      onZoom={setRange}
+                      length={a.length}
                       onRange={(r) => {
                         setRange(r);
                         moveCursor(r[0]);

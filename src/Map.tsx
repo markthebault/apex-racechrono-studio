@@ -154,17 +154,32 @@ export function TrackMap({
           }),
         }).addTo(group!);
     }
-    const coords: Array<[number, number]> = [];
-    for (let i = 0; i < a.lat.length; i += 10)
-      if (
-        a.distance[i] >= range[0] &&
-        a.distance[i] <= range[1] &&
-        Number.isFinite(a.lat[i])
-      )
-        coords.push([a.lat[i], a.lon[i]]);
-    if (coords.length)
-      map.current?.fitBounds(coords, { padding: [35, 35], animate: false });
-  }, [a, lapKey, gates, range, colors[0]]);
+  }, [a, lapKey, gates, colors[0]]);
+  // The view follows the zoom window. While the window scrolls during playback this runs
+  // every few milliseconds, so refitting is limited to a few times a second.
+  const fitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastFit = useRef(0);
+  useEffect(() => {
+    if (!a) return;
+    const fit = () => {
+      lastFit.current = Date.now();
+      const coords: Array<[number, number]> = [];
+      for (let i = 0; i < a.lat.length; i += 10)
+        if (
+          a.distance[i] >= range[0] &&
+          a.distance[i] <= range[1] &&
+          Number.isFinite(a.lat[i])
+        )
+          coords.push([a.lat[i], a.lon[i]]);
+      if (coords.length)
+        map.current?.fitBounds(coords, { padding: [35, 35], animate: false });
+    };
+    clearTimeout(fitTimer.current);
+    const wait = 350 - (Date.now() - lastFit.current);
+    if (wait <= 0) fit();
+    else fitTimer.current = setTimeout(fit, wait);
+    return () => clearTimeout(fitTimer.current);
+  }, [a, range[0], range[1]]);
   useEffect(() => {
     markers.current?.clearLayers();
     const cars: [Trace, string, string, number][] = [

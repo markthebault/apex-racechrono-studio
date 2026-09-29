@@ -377,3 +377,40 @@ export function optimalWith(pool: Trace[], extra: Trace, gates: number[]) {
     wins: withIt.filter((x) => x.source.id === extra.id).length,
   };
 }
+
+// Keeps a zoomed chart window on the cursor while it moves. Going forward the window
+// stays put until the cursor passes `lead` of its width, then scrolls with it so the
+// cursor holds that position. A jump back puts the cursor 10% in. A window that
+// already shows the whole lap is left alone. Returns the same array when nothing changes.
+export function followRange(
+  range: [number, number],
+  d: number,
+  length: number,
+  lead = 0.6,
+): [number, number] {
+  const width = range[1] - range[0];
+  if (width >= length - 1 || !Number.isFinite(d)) return range;
+  let start = range[0];
+  if (d > range[0] + width * lead) start = d - width * lead;
+  else if (d < range[0]) start = d - width * 0.1;
+  start = Math.max(0, Math.min(length - width, start));
+  return start === range[0] ? range : [start, start + width];
+}
+// Zoom in or out around `focus`, which keeps its place under the pointer. factor < 1 zooms in.
+export function zoomRange(
+  range: [number, number],
+  focus: number,
+  factor: number,
+  length: number,
+  minWidth = 100,
+): [number, number] {
+  const width = range[1] - range[0];
+  const next = Math.max(
+    Math.min(minWidth, length),
+    Math.min(length, width * factor),
+  );
+  const at = width > 0 ? (focus - range[0]) / width : 0.5;
+  let start = focus - at * next;
+  start = Math.max(0, Math.min(length - next, start));
+  return [start, start + next];
+}

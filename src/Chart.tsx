@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Trace, ChartConfig, Comparison } from "./model";
 import { definitions } from "./model";
-import { interpolate, atDistance, elapsedDelta } from "./analysis";
+import { interpolate, atDistance, elapsedDelta, zoomRange } from "./analysis";
 import { hoverBus } from "./hover";
 import { formatClockTenths } from "./wallclock";
 export function Chart({
@@ -15,6 +15,8 @@ export function Chart({
   range,
   onCursor,
   onRange,
+  onZoom,
+  length,
   onChange,
   onRemove,
   onUp,
@@ -29,6 +31,10 @@ export function Chart({
   range: [number, number];
   onCursor: (n: number) => void;
   onRange: (r: [number, number]) => void;
+  // Wheel zoom: changes the window only, so playback and the cursor carry on.
+  onZoom: (r: [number, number]) => void;
+  // Length of the lap in metres, the limit of zooming out.
+  length: number;
   onChange: (c: ChartConfig) => void;
   onRemove: () => void;
   onUp: () => void;
@@ -343,6 +349,42 @@ export function Chart({
     }
   };
   useEffect(() => () => hoverBus.set(null), []);
+  // Wheel over a chart zooms around the pointer; with Shift it pans. It has to be a native
+  // listener because the page would otherwise scroll as well.
+  const view = useRef({ range, length, onZoom });
+  view.current = { range, length, onZoom };
+  useEffect(() => {
+    const c = canvas.current;
+    if (!c) return;
+    const onWheel = (e: WheelEvent) => {
+      const { range: r, length: len, onZoom: zoom } = view.current;
+      e.preventDefault();
+      const box = c.getBoundingClientRect();
+      const px = Math.max(
+        r[0],
+        Math.min(
+          r[1],
+          r[0] +
+            ((e.clientX - box.left - 48) / (box.width - 63)) * (r[1] - r[0]),
+        ),
+      );
+      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : 1) + e.deltaX;
+      if (e.shiftKey) {
+        const shift = (delta / 400) * (r[1] - r[0]);
+        const start = Math.max(0, Math.min(len - (r[1] - r[0]), r[0] + shift));
+        const next: [number, number] = [start, start + (r[1] - r[0])];
+        view.current.range = next;
+        zoom(next);
+      } else {
+        const next = zoomRange(r, px, Math.exp(delta * 0.0015), len);
+        // A trackpad sends bursts of events before the next render, so chain them.
+        view.current.range = next;
+        zoom(next);
+      }
+    };
+    c.addEventListener("wheel", onWheel, { passive: false });
+    return () => c.removeEventListener("wheel", onWheel);
+  }, []);
   useEffect(() => {
     draw();
     const o = new ResizeObserver(draw);

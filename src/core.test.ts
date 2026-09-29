@@ -18,6 +18,8 @@ import {
   stepCursor,
   opportunities,
   optimalWith,
+  followRange,
+  zoomRange,
   STEP_MS,
   SHIFT_STEP_FACTOR,
   BRAKE_G,
@@ -1077,5 +1079,48 @@ describe("time of day in the hover box", () => {
       "09:05:00.0",
     );
     expect(formatClockTenths(NaN)).toBe("—");
+  });
+});
+
+describe("zoom window follows the cursor", () => {
+  const L = 10000;
+  it("leaves the window alone until the cursor passes 60% of it, then scrolls with it", () => {
+    const r: [number, number] = [2000, 3000];
+    expect(followRange(r, 2500, L)).toBe(r);
+    expect(followRange(r, 2600, L)).toBe(r);
+    expect(followRange(r, 2800, L)).toEqual([2200, 3200]);
+    // The cursor keeps its place in the window as it moves on.
+    expect(followRange([2200, 3200], 5000, L)).toEqual([4400, 5400]);
+  });
+  it("catches a cursor that ran past the end or jumped back", () => {
+    expect(followRange([2000, 3000], 5000, L)).toEqual([4400, 5400]);
+    expect(followRange([2000, 3000], 500, L)).toEqual([400, 1400]);
+  });
+  it("stops at the ends of the lap and ignores an unzoomed window", () => {
+    expect(followRange([8000, 9000], 9990, L)).toEqual([9000, 10000]);
+    expect(followRange([100, 1100], 5, L)).toEqual([0, 1000]);
+    const full: [number, number] = [0, L];
+    expect(followRange(full, 7000, L)).toBe(full);
+    expect(followRange([2000, 3000], NaN, L)).toEqual([2000, 3000]);
+  });
+  it("zooms around the pointer so the point under it stays put", () => {
+    const r = zoomRange([0, 10000], 5000, 0.5, L);
+    expect(r).toEqual([2500, 7500]);
+    const off = zoomRange([0, 10000], 1000, 0.5, L);
+    expect(off[0]).toBe(500);
+    expect(off[1] - off[0]).toBe(5000);
+    // 1000 sat at 10% of the old window and still sits at 10% of the new one.
+    expect((1000 - off[0]) / (off[1] - off[0])).toBeCloseTo(0.1, 6);
+  });
+  it("limits how far it zooms in and out, and stays inside the lap", () => {
+    const tight = zoomRange([4000, 4200], 4100, 0.1, L);
+    expect(tight[1] - tight[0]).toBe(100);
+    expect((tight[0] + tight[1]) / 2).toBe(4100);
+    expect(zoomRange([2000, 8000], 5000, 10, L)).toEqual([0, L]);
+    const edge = zoomRange([0, 4000], 0, 1.5, L);
+    expect(edge[0]).toBe(0);
+    expect(edge[1]).toBe(6000);
+    const end = zoomRange([6000, 10000], 10000, 0.5, L);
+    expect(end[1]).toBe(L);
   });
 });
