@@ -18,6 +18,9 @@ import {
   work,
   validateSync,
 } from "./storage";
+// What picking a file should do: open the first video of a session, pick the saved
+// video again, replace it with a different one, or add the next clip of a split recording.
+type Mode = "first" | "relink" | "replace" | "append";
 export function VideoPanel({
   session,
   stamp,
@@ -54,6 +57,7 @@ export function VideoPanel({
 }) {
   const flash = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(flash.current), []);
+  const pendingMode = useRef<Mode>("first");
   const video = useRef<HTMLVideoElement>(null),
     input = useRef<HTMLInputElement>(null),
     abort = useRef<AbortController | null>(null);
@@ -128,13 +132,15 @@ export function VideoPanel({
     setNote("");
     setConfirm(null);
   }, [session?.id]);
-  async function add(list: File[], handles?: any[]) {
+  async function add(list: File[], handles: any[] | undefined, mode: Mode) {
     if (!session) return;
     onPause();
     setError("");
     abort.current = new AbortController();
     try {
-      let clips = [...(binding?.clips || [])];
+      // Replacing starts over: nothing of the old video or its sync carries across.
+      const base = mode === "replace" ? undefined : binding;
+      let clips = [...(base?.clips || [])];
       const ordered = list
         .map((file, i) => ({ file, handle: handles?.[i] }))
         .sort((a, b) =>
@@ -153,10 +159,12 @@ export function VideoPanel({
           abort.current.signal,
         );
         const match = clips.find((c) => c.sha256 === identity.sha256);
-        if (clips.length && clips.some((c) => !urls[c.sha256]) && !match)
+        if (mode === "relink" && !match)
           throw Error(
-            "Video hash does not match the saved synchronization. Select the original file.",
+            `${f.name} is not the video saved for this session. Pick the original file, or use Replace video to switch to this one.`,
           );
+        if (mode === "append" && !match && clips.some((c) => !urls[c.sha256]))
+          throw Error("Reload the earlier clips first, then add the next one.");
         const objectUrl = URL.createObjectURL(f);
         const duration = await new Promise<number>((resolve, reject) => {
           const v = document.createElement("video");
@@ -192,9 +200,9 @@ export function VideoPanel({
       setFiles(urls);
       // A first clip is placed on the telemetry clock from the time recorded in the file,
       // when that time falls inside this session.
-      let anchors = binding?.anchors ?? [];
+      let anchors = base?.anchors ?? [];
       let placed: number | null = null;
-      if (!binding?.clips.length && clips.length) {
+      if (!base?.clips.length && clips.length) {
         const shown = (t: number) =>
           new Date(t).toLocaleString("en-GB", {
             dateStyle: "medium",
@@ -229,32 +237,42 @@ export function VideoPanel({
               : `The time recorded in this video (${shown(created)}) is outside this session. It is usually the moment the file was exported, so it cannot place the video. Sync it by hand with the steps below.`,
           );
       }
-      onBinding(
-        binding
-          ? { ...binding, clips, anchors }
-          : {
-              session: {
-                sha256: session.id,
-                name: session.filename,
-                size: session.size,
-              },
-              clips,
-              anchors,
+      const next: Binding = base
+        ? { ...base, clips, anchors }
+        : {
+            session: {
+              sha256: session.id,
+              name: session.filename,
+              size: session.size,
             },
-      );
+            clips,
+            anchors,
+          };
+      onBinding(next);
       setEditing(!anchors.length);
+      if (mode === "replace") setConfirm(null);
       if (placed !== null) onGoTo?.(placed);
+      else if (anchors.length) {
+        // A synced video that is out of view would look broken, so go to it.
+        const from = stampAtVideo(next, 0),
+          to = stampAtVideo(
+            next,
+            Math.max(...clips.map((c) => c.start + c.duration)),
+          );
+        if (stamp < from || stamp > to) onGoTo?.(Math.max(from, session.start));
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setProgress("");
     }
   }
-  async function open() {
+  async function open(mode: Mode = binding ? "relink" : "first") {
+    pendingMode.current = mode;
     try {
       if ("showOpenFilePicker" in window) {
         const handles = await (window as any).showOpenFilePicker({
-          multiple: true,
+          multiple: mode !== "replace",
           types: [
             {
               description: "Videos",
@@ -265,6 +283,7 @@ export function VideoPanel({
         await add(
           await Promise.all(handles.map((h: any) => h.getFile())),
           handles,
+          mode,
         );
       } else input.current?.click();
     } catch (e) {
@@ -277,13 +296,17 @@ export function VideoPanel({
       const handles = await Promise.all(
         binding.clips.map((c) => getHandle(c.sha256)),
       );
-      if (handles.some((h) => !h)) return open();
+      if (handles.some((h) => !h)) return open("relink");
       for (const h of handles)
         if ((await h.requestPermission({ mode: "read" })) !== "granted")
-          return open();
-      await add(await Promise.all(handles.map((h) => h.getFile())), handles);
+          return open("relink");
+      await add(
+        await Promise.all(handles.map((h) => h.getFile())),
+        handles,
+        "relink",
+      );
     } catch {
-      await open();
+      await open("relink");
     }
   }
   function anchor(second = false) {
@@ -380,17 +403,32 @@ export function VideoPanel({
         <span>
           {label} <small>{session?.track || "Select a lap"}</small>
         </span>
-        <button
-          disabled={!session}
-          title={
-            binding
-              ? "Pick the video file again, for example after reloading the page, or add another clip of this session"
-              : "Choose a video of this session"
-          }
-          onClick={binding ? reconnect : open}
-        >
-          {binding ? "Reload video" : "Open video"}
-        </button>
+        {binding ? (
+          <span className="heading-actions">
+            <button
+              disabled={!session}
+              title="Pick the same video file again, for example after reloading the page"
+              onClick={reconnect}
+            >
+              Reload video
+            </button>
+            <button
+              disabled={!session}
+              title="Use a different video for this session. The current sync is discarded"
+              onClick={() => open("replace")}
+            >
+              Replace video
+            </button>
+          </span>
+        ) : (
+          <button
+            disabled={!session}
+            title="Choose a video of this session"
+            onClick={() => open("first")}
+          >
+            Open video
+          </button>
+        )}
       </div>
       <input
         hidden
@@ -398,7 +436,11 @@ export function VideoPanel({
         type="file"
         accept="video/*"
         multiple
-        onChange={(e) => add(Array.from(e.target.files || []))}
+        onChange={(e) => {
+          const chosen = Array.from(e.target.files || []);
+          e.target.value = "";
+          add(chosen, undefined, pendingMode.current);
+        }}
       />
       {url ? (
         <video
@@ -423,21 +465,50 @@ export function VideoPanel({
       ) : (
         <div className="video-empty">
           <span>▷</span>
-          <strong>
-            {binding
-              ? active === -1 && !editing
-                ? "No footage at this position"
-                : "Relink your local video"
-              : "Your footage, in sync"}
-          </strong>
-          <p>
-            {binding
-              ? "Timing is saved. Video stays on your device."
-              : "Open a video, choose a matching moment, save the sync."}
-          </p>
-          <button disabled={!session} onClick={open}>
-            Choose local video
-          </button>
+          {binding &&
+          !editing &&
+          active === -1 &&
+          Number.isFinite(videoStart) ? (
+            <>
+              <strong>The video is not showing at this moment</strong>
+              <p>
+                It covers {formatWallClock(videoStart)} to{" "}
+                {formatWallClock(videoEnd)} local time.{" "}
+                {overlaps
+                  ? "This point on the lap is outside that."
+                  : "That does not overlap this session's GPS data, so the start time is probably wrong."}
+              </p>
+              {overlaps ? (
+                <button
+                  className="sync-button"
+                  onClick={() => onGoTo?.(overlapStart)}
+                >
+                  Go to where the video starts
+                </button>
+              ) : (
+                <button onClick={() => setEditing(true)}>
+                  Fix the start time
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <strong>
+                {binding ? "Reload your local video" : "Your footage, in sync"}
+              </strong>
+              <p>
+                {binding
+                  ? "The sync is saved. The video stays on your device, so pick the file again."
+                  : "Open a video, choose a matching moment, save the sync."}
+              </p>
+              <button
+                disabled={!session}
+                onClick={() => open(binding ? "relink" : "first")}
+              >
+                {binding ? "Reload video" : "Choose local video"}
+              </button>
+            </>
+          )}
         </div>
       )}
       {progress && (
@@ -668,6 +739,17 @@ export function VideoPanel({
                       onClick={() => anchor(true)}
                     >
                       Add drift correction
+                    </button>
+                  </div>
+                </div>
+                <div className="start-time">
+                  <p>
+                    <b>The recording is split into several files.</b> Add the
+                    next file so it plays after this one.
+                  </p>
+                  <div className="row">
+                    <button disabled={!session} onClick={() => open("append")}>
+                      Add next clip
                     </button>
                   </div>
                 </div>

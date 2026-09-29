@@ -2056,3 +2056,8 @@ button.collection-name:focus-visible {
 .video-toolbar small.unsynced {
   color: #f0b46b;
 }
+
+.heading-actions {
+  display: flex;
+  gap: 8px;
+}
