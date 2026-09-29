@@ -1561,7 +1561,15 @@ export default function App() {
                                         included: settings.included.includes(
                                           l.id,
                                         ),
-                                      });
+                                      }),
+                                      // A status is shown only when a lap needs attention or
+                                      // you have made a decision about it.
+                                      attention = [
+                                        "review",
+                                        "unusable",
+                                        "included",
+                                        "excluded",
+                                      ].includes(status);
                                     return (
                                       <tr key={l.id}>
                                         <td>
@@ -1571,29 +1579,30 @@ export default function App() {
                                           {lapTime(l.end - l.start)}
                                         </td>
                                         <td>
-                                          <span
-                                            className={`lap-status ${status}`}
-                                          >
-                                            {STATUS_LABEL[status]}
-                                          </span>
-                                          {status === "other-track" ? (
-                                            <small>
-                                              Not part of the current analysis
-                                            </small>
-                                          ) : (
+                                          {attention && (
+                                            <span
+                                              className={`lap-status ${status}`}
+                                            >
+                                              {STATUS_LABEL[status]}
+                                            </span>
+                                          )}
+                                          {status !== "other-track" &&
                                             issues.length > 0 && (
                                               <small>
                                                 {issues.join(" · ")}
                                               </small>
-                                            )
-                                          )}
+                                            )}
                                         </td>
                                         <td className="row-actions">
-                                          <button
-                                            onClick={() => setReviewId(l.id)}
-                                          >
-                                            Review
-                                          </button>
+                                          {(attention ||
+                                            (status !== "other-track" &&
+                                              issues.length > 0)) && (
+                                            <button
+                                              onClick={() => setReviewId(l.id)}
+                                            >
+                                              Review
+                                            </button>
+                                          )}
                                           <button
                                             onClick={() => {
                                               patch({ a: l.id });
