@@ -200,22 +200,6 @@ nav button small {
   border-style: dashed;
   font-size: 12px;
 }
-.sidebar-bottom {
-  margin-top: auto;
-  display: flex;
-  gap: 10px;
-  padding: 22px 6px 0;
-  color: #b8c5ce;
-  font-size: 11px;
-}
-.sidebar-bottom svg {
-  color: var(--cyan);
-}
-.sidebar-bottom small {
-  display: block;
-  font-size: 9px;
-  margin-top: 5px;
-}
 main {
   margin-left: 216px;
   width: calc(100% - 216px);
@@ -1071,7 +1055,6 @@ footer button {
   .track-group,
   .session-check,
   .sidebar-import,
-  .sidebar-bottom,
   .sidebar-divider,
   nav span,
   nav small {

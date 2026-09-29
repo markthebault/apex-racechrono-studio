@@ -13,7 +13,6 @@ import {
   Plus,
   Settings2,
   Video,
-  WifiOff,
   X,
 } from "lucide-react";
 import type {
@@ -767,12 +766,6 @@ export default function App() {
         >
           <Plus size={16} /> Add session
         </button>
-        <div className="sidebar-bottom">
-          <WifiOff size={16} />
-          <div>
-            Local by design<small>Your recordings stay on this device.</small>
-          </div>
-        </div>
       </aside>
       <main>
         <header>
