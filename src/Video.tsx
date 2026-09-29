@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Volume2, VolumeX } from "lucide-react";
 import type { Binding, Identity, Session } from "./model";
 import { readCreationTime, matchVideoStart } from "./mp4";
 import { formatWallClock, formatWallDate, parseWallClock } from "./wallclock";
@@ -45,7 +46,9 @@ export function VideoPanel({
     [editing, setEditing] = useState(false),
     [selected, setSelected] = useState(0),
     [note, setNote] = useState(""),
-    [startText, setStartText] = useState<string | null>(null);
+    [startText, setStartText] = useState<string | null>(null),
+    // Lap A carries the sound. Lap B starts muted so two videos do not talk over each other.
+    [muted, setMuted] = useState(label !== "LAP A");
   const [seek, setSeek] = useState(0);
   const vt = binding ? videoTime(binding, stamp) : NaN;
   const active =
@@ -79,7 +82,18 @@ export function VideoPanel({
       v.currentTime = target;
     }
     if (playing && !v.seeking)
-      v.play().catch((e) => setError(`Playback unavailable: ${e.message}`));
+      v.play().catch((e) => {
+        // Browsers may refuse sound until the page has been clicked. Fall back to a
+        // silent picture and say so, instead of showing nothing.
+        if (e.name === "NotAllowedError" && !v.muted) {
+          v.muted = true;
+          setMuted(true);
+          setNote(
+            "The browser blocked sound. Click the sound button to turn it on.",
+          );
+          v.play().catch((x) => setError(`Playback unavailable: ${x.message}`));
+        } else setError(`Playback unavailable: ${e.message}`);
+      });
     else v.pause();
   }, [vt, url, editing, playing]);
   useEffect(() => () => onBusy(false), []);
@@ -349,7 +363,7 @@ export function VideoPanel({
         <video
           ref={video}
           src={url}
-          muted
+          muted={muted}
           controls={editing}
           preload="auto"
           onSeeked={() => onBusy(false)}
@@ -413,6 +427,20 @@ export function VideoPanel({
               }}
             >
               Unlink
+            </button>
+            <button
+              className={muted ? "" : "active"}
+              aria-pressed={!muted}
+              title={
+                muted ? "Turn the video sound on" : "Turn the video sound off"
+              }
+              onClick={() => {
+                setMuted(!muted);
+                setNote("");
+              }}
+            >
+              {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}{" "}
+              {muted ? "Sound off" : "Sound on"}
             </button>
             <small>
               {binding.anchors.length === 2
