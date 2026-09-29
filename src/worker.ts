@@ -1,5 +1,6 @@
 import { createSHA256 } from "hash-wasm";
 import { decode } from "./decoder";
+import { fingerprintOf } from "./fingerprint";
 import { trace, align, optimal } from "./analysis";
 self.onmessage = async ({ data }) => {
   try {
@@ -20,6 +21,10 @@ self.onmessage = async ({ data }) => {
           ),
         },
       });
+      return;
+    }
+    if (data.kind === "fingerprint") {
+      self.postMessage({ result: await fingerprintOf(data.file) });
       return;
     }
     const file: File = data.file;

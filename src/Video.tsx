@@ -11,6 +11,8 @@ import {
   parseWallClock,
 } from "./wallclock";
 import {
+  cachedHash,
+  rememberHash,
   getHandle,
   saveHandle,
   videoTime,
@@ -151,13 +153,28 @@ export function VideoPanel({
       const urls = { ...files };
       for (let i = 0; i < list.length; i++) {
         const f = list[i];
-        setProgress(`Hashing ${f.name}`);
-        const identity = await work<Identity>(
-          "hash",
+        // A file seen before is recognised from a 2 MB fingerprint instead of being read
+        // through again, which takes half a minute for a multi-gigabyte video.
+        setProgress(`Checking ${f.name}`);
+        const fingerprint = await work<string>(
+          "fingerprint",
           { file: f },
-          (p) => setProgress(`Hashing ${f.name} · ${Math.round(p * 100)}%`),
+          undefined,
           abort.current.signal,
         );
+        const known = await cachedHash(fingerprint);
+        let identity: Identity;
+        if (known) identity = { sha256: known, name: f.name, size: f.size };
+        else {
+          setProgress(`Hashing ${f.name}`);
+          identity = await work<Identity>(
+            "hash",
+            { file: f },
+            (p) => setProgress(`Hashing ${f.name} · ${Math.round(p * 100)}%`),
+            abort.current.signal,
+          );
+          await rememberHash(fingerprint, identity.sha256);
+        }
         const match = clips.find((c) => c.sha256 === identity.sha256);
         if (mode === "relink" && !match)
           throw Error(

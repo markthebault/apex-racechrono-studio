@@ -42,6 +42,14 @@ export async function commitProject(
 export async function saveState(key: string, value: unknown) {
   await (await db).put("state", value, key);
 }
+// Full hashes of large files already computed, keyed by a cheap fingerprint of the file.
+export async function cachedHash(fingerprint: string) {
+  return (await (await db).get("state", "vh:" + fingerprint)) as
+    string | undefined;
+}
+export async function rememberHash(fingerprint: string, sha256: string) {
+  await (await db).put("state", sha256, "vh:" + fingerprint);
+}
 export async function saveHandle(hash: string, handle: unknown) {
   await (await db).put("handles", handle, hash);
 }

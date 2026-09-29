@@ -36,6 +36,7 @@ import {
 import { summarize, formatGap } from "./summary";
 import { classifyFile, describeImport } from "./files";
 import { hoverBus } from "./hover";
+import { fingerprintOf } from "./fingerprint";
 import { readCreationTime, matchVideoStart } from "./mp4";
 import { parseLapTime } from "./model";
 import { lapStatus, explainIssue, canInclude, STATUS_LABEL } from "./lapStatus";
@@ -1122,5 +1123,40 @@ describe("zoom window follows the cursor", () => {
     expect(edge[1]).toBe(6000);
     const end = zoomRange([6000, 10000], 10000, 0.5, L);
     expect(end[1]).toBe(L);
+  });
+});
+
+describe("video fingerprint", () => {
+  const file = (bytes: Uint8Array, name = "a.mp4", modified = 1000) =>
+    new File([bytes as BlobPart], name, { lastModified: modified });
+  const filler = (n: number, fill = 7) => new Uint8Array(n).fill(fill);
+  it("is the same for the same file, whatever it is called", async () => {
+    const bytes = filler(3_000_000);
+    expect(await fingerprintOf(file(bytes, "a.mp4"))).toBe(
+      await fingerprintOf(file(bytes, "renamed.MP4")),
+    );
+  });
+  it("changes when the size, the date or either end of the file changes", async () => {
+    const bytes = filler(3_000_000);
+    const base = await fingerprintOf(file(bytes));
+    expect(await fingerprintOf(file(filler(3_000_001)))).not.toBe(base);
+    expect(await fingerprintOf(file(bytes, "a.mp4", 2000))).not.toBe(base);
+    const head = bytes.slice();
+    head[10] = 9;
+    expect(await fingerprintOf(file(head))).not.toBe(base);
+    const tail = bytes.slice();
+    tail[tail.length - 10] = 9;
+    expect(await fingerprintOf(file(tail))).not.toBe(base);
+  });
+  it("works on a file smaller than the two ends it reads", async () => {
+    expect(await fingerprintOf(file(filler(100)))).toMatch(
+      /^100:1000:[0-9a-f]{64}$/,
+    );
+  });
+  it("remembers a full hash against a fingerprint", async () => {
+    const { cachedHash, rememberHash } = await import("./storage");
+    expect(await cachedHash("nothing:0:x")).toBeUndefined();
+    await rememberHash("3:1:abc", "f".repeat(64));
+    expect(await cachedHash("3:1:abc")).toBe("f".repeat(64));
   });
 });
