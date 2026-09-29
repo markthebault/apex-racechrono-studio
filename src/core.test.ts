@@ -34,6 +34,8 @@ import {
 import { summarize, formatGap } from "./summary";
 import { classifyFile, describeImport } from "./files";
 import { hoverBus } from "./hover";
+import { readCreationTime, matchVideoStart } from "./mp4";
+import { parseLapTime } from "./model";
 import { lapStatus, explainIssue, canInclude, STATUS_LABEL } from "./lapStatus";
 import { validateSync, videoTime } from "./storage";
 // Real recordings are private and are not in the repository. Set APEX_FIXTURES to a
@@ -906,5 +908,96 @@ describe("effect of counting a lap", () => {
   it("reports a lap that wins nothing", () => {
     const pool = [lap("a", [8, 8, 8])];
     expect(optimalWith(pool, lap("slow", [20, 20, 20]), gates).wins).toBe(0);
+  });
+});
+
+describe("video recording time", () => {
+  const box = (type: string, payload: Uint8Array) => {
+    const b = new Uint8Array(8 + payload.length);
+    new DataView(b.buffer).setUint32(0, b.length);
+    b.set(strToU8(type), 4);
+    b.set(payload, 8);
+    return b;
+  };
+  const mvhd = (unix: number, version = 0) => {
+    const p = new Uint8Array(version ? 32 : 24);
+    const v = new DataView(p.buffer);
+    p[0] = version;
+    const secs = unix / 1000 + 2082844800;
+    if (version) v.setBigUint64(4, BigInt(secs));
+    else v.setUint32(4, secs);
+    return box("mvhd", p);
+  };
+  const mp4 = (...parts: Uint8Array[]) => new Blob(parts as BlobPart[]);
+  it("reads the creation time when the header is at the end, after a big mdat", async () => {
+    const t = Date.UTC(2026, 8, 27, 12, 30, 0);
+    const file = mp4(
+      box("ftyp", strToU8("qt  ")),
+      box("mdat", new Uint8Array(5000)),
+      box("moov", mvhd(t)),
+    );
+    expect(await readCreationTime(file)).toBe(t);
+  });
+  it("reads a 64-bit header and ignores files without one", async () => {
+    const t = Date.UTC(2026, 8, 27, 12, 30, 0);
+    expect(await readCreationTime(mp4(box("moov", mvhd(t, 1))))).toBe(t);
+    expect(
+      await readCreationTime(mp4(box("ftyp", strToU8("qt  ")))),
+    ).toBeNull();
+    expect(
+      await readCreationTime(new Blob([new Uint8Array([1, 2, 3])])),
+    ).toBeNull();
+    const empty = new Uint8Array(24);
+    expect(
+      await readCreationTime(mp4(box("moov", box("mvhd", empty)))),
+    ).toBeNull();
+  });
+  const session = {
+    start: Date.UTC(2026, 8, 27, 11, 40),
+    end: Date.UTC(2026, 8, 27, 14, 20),
+  };
+  it("accepts a UTC recording time that falls inside the session", () => {
+    const at = Date.UTC(2026, 8, 27, 12, 14, 44);
+    const r = matchVideoStart(at, session, -120)!;
+    expect(r.start).toBe(at);
+    expect(r.reading).toBe("utc");
+    expect(r.ambiguous).toBe(false);
+  });
+  it("reads local wall-clock digits when only that fits", () => {
+    // Camera in UTC+2 wrote 14:14:44 as if it were UTC. The real start is 12:14:44 UTC,
+    // and this session ended at 13:00 UTC, so the UTC reading cannot be right.
+    const short = {
+      start: Date.UTC(2026, 8, 27, 11, 40),
+      end: Date.UTC(2026, 8, 27, 13, 0),
+    };
+    const digits = Date.UTC(2026, 8, 27, 14, 14, 44);
+    const r = matchVideoStart(digits, short, -120)!;
+    expect(r.start).toBe(Date.UTC(2026, 8, 27, 12, 14, 44));
+    expect(r.reading).toBe("local");
+    expect(r.ambiguous).toBe(false);
+  });
+  it("flags it when both readings fit inside a long session", () => {
+    const digits = Date.UTC(2026, 8, 27, 14, 14, 44);
+    const r = matchVideoStart(digits, session, -120)!;
+    expect(r.reading).toBe("utc");
+    expect(r.ambiguous).toBe(true);
+    expect(r.other).toBe(Date.UTC(2026, 8, 27, 12, 14, 44));
+  });
+  it("gives up on an export time far from the session", () => {
+    const exported = Date.UTC(2026, 8, 28, 14, 20, 33);
+    expect(matchVideoStart(exported, session, -120)).toBeNull();
+  });
+});
+describe("typed lap time", () => {
+  it("understands minutes, hours and plain seconds", () => {
+    expect(parseLapTime("85:40")).toBe(5140000);
+    expect(parseLapTime("85:40.250")).toBe(5140250);
+    expect(parseLapTime("1:25:40")).toBe(5140000);
+    expect(parseLapTime("5140")).toBe(5140000);
+    expect(parseLapTime(" 0:12,5 ")).toBe(12500);
+  });
+  it("rejects nonsense", () => {
+    for (const bad of ["", "abc", "1:75", "1:2:3:4", "-5", "12:"])
+      expect(parseLapTime(bad)).toBeNaN();
   });
 });

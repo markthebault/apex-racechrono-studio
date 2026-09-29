@@ -99,3 +99,13 @@ export type Comparison = {
   cursor: number;
   tag: string;
 };
+
+// Lap time typed by a person: "85:40", "1:25:40.5", "5140" or "12.5" (seconds).
+export function parseLapTime(text: string): number {
+  const parts = text.trim().replace(",", ".").split(":");
+  if (parts.length > 3 || parts.some((x) => !/^\d+(\.\d+)?$/.test(x)))
+    return NaN;
+  const nums = parts.map(Number);
+  if (nums.length > 1 && nums.slice(1).some((x) => x >= 60)) return NaN;
+  return nums.reduce((total, x) => total * 60 + x, 0) * 1000;
+}

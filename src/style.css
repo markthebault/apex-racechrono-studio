@@ -1843,3 +1843,49 @@ button.collection-name:focus-visible {
   color: #ee8a8a;
   flex-basis: 100%;
 }
+
+.clock-input {
+  width: 108px;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: inherit;
+  font-size: inherit;
+  cursor: text;
+}
+.clock-input:hover {
+  border-color: #3a444b;
+}
+.clock-input:focus {
+  border-color: #63e5d2;
+  outline: none;
+  background: #0f1113;
+}
+
+.sync-button {
+  background: #2f8f55;
+  border-color: #3fae6a;
+  color: #fff;
+  font-weight: 700;
+}
+.sync-button:hover:not(:disabled) {
+  background: #38a463;
+}
+.sync-button:disabled {
+  background: #2f8f5544;
+  color: #ffffff88;
+}
+.sync-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #a9b6bd;
+  line-height: 1.45;
+}
+.sync-steps {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #a9b6bd;
+  line-height: 1.5;
+}

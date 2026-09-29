@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Binding, Identity, Session } from "./model";
+import { readCreationTime, matchVideoStart } from "./mp4";
 import {
   getHandle,
   saveHandle,
@@ -19,6 +20,7 @@ export function VideoPanel({
   playing,
   onPause,
   onUnlink,
+  onGoTo,
 }: {
   session?: Session;
   stamp: number;
@@ -31,6 +33,7 @@ export function VideoPanel({
   playing: boolean;
   onPause: () => void;
   onUnlink: () => void;
+  onGoTo?: (stamp: number) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null),
     input = useRef<HTMLInputElement>(null),
@@ -38,7 +41,8 @@ export function VideoPanel({
   const [progress, setProgress] = useState(""),
     [error, setError] = useState(""),
     [editing, setEditing] = useState(false),
-    [selected, setSelected] = useState(0);
+    [selected, setSelected] = useState(0),
+    [note, setNote] = useState("");
   const [seek, setSeek] = useState(0);
   const vt = binding ? videoTime(binding, stamp) : NaN;
   const active =
@@ -68,6 +72,7 @@ export function VideoPanel({
     setSelected(0);
     setEditing(false);
     setError("");
+    setNote("");
   }, [session?.id]);
   async function add(list: File[], handles?: any[]) {
     if (!session) return;
@@ -131,9 +136,48 @@ export function VideoPanel({
           });
       }
       setFiles(urls);
+      // A first clip is placed on the telemetry clock from the time recorded in the file,
+      // when that time falls inside this session.
+      let anchors = binding?.anchors ?? [];
+      let placed: number | null = null;
+      if (!binding?.clips.length && clips.length) {
+        const shown = (t: number) =>
+          new Date(t).toLocaleString("en-GB", {
+            dateStyle: "medium",
+            timeStyle: "medium",
+          });
+        const created = await readCreationTime(list[0]);
+        const match =
+          created === null
+            ? null
+            : matchVideoStart(
+                created,
+                { start: session.start, end: session.end },
+                new Date(created).getTimezoneOffset(),
+              );
+        if (match) {
+          placed = match.start;
+          anchors = [
+            { videoSeconds: clips[0].start, sessionTimestamp: match.start },
+          ];
+          setNote(
+            `Synced from the time recorded in the video, ${shown(match.start)}` +
+              (match.ambiguous
+                ? `. It could also be ${shown(match.other)} if the camera stored local time. Check the picture against the map and press Sync here if it is off.`
+                : match.reading === "local"
+                  ? " (the camera stored local time). Check the picture against the map."
+                  : ". Check the picture against the map."),
+          );
+        } else
+          setNote(
+            created === null
+              ? "This video has no recording time, so it cannot be placed automatically. Sync it by hand with the steps below."
+              : `The time recorded in this video (${shown(created)}) is outside this session. It is usually the moment the file was exported, so it cannot place the video. Sync it by hand with the steps below.`,
+          );
+      }
       onBinding(
         binding
-          ? { ...binding, clips }
+          ? { ...binding, clips, anchors }
           : {
               session: {
                 sha256: session.id,
@@ -141,10 +185,11 @@ export function VideoPanel({
                 size: session.size,
               },
               clips,
-              anchors: [],
+              anchors,
             },
       );
-      setEditing(!binding?.anchors.length);
+      setEditing(!anchors.length);
+      if (placed !== null) onGoTo?.(placed);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -236,7 +281,7 @@ export function VideoPanel({
           onCanPlay={() => onBusy(false)}
           onError={() => {
             setError(
-              "This browser cannot decode this video. Try an H.264 MP4.",
+              "This browser cannot decode this video. It is probably HEVC (H.265): Safari plays it, Chrome only with hardware support. Convert it with: ffmpeg -i input.MP4 -c:v libx264 -crf 23 -an output.mp4",
             );
             onBusy(false);
           }}
@@ -269,6 +314,7 @@ export function VideoPanel({
         </p>
       )}
       {error && <p className="error">{error}</p>}
+      {note && <p className="sync-note">{note}</p>}
       {binding && (
         <>
           <div className="video-toolbar">
@@ -364,20 +410,35 @@ export function VideoPanel({
                 s in recording
               </label>
               <div className="row">
-                <button disabled={!url} onClick={() => anchor()}>
-                  Set anchor at cursor
+                <button
+                  className="sync-button"
+                  disabled={!url}
+                  onClick={() => anchor()}
+                >
+                  Sync here
                 </button>
                 <button
                   disabled={!url || !binding.anchors.length}
                   onClick={() => anchor(true)}
                 >
-                  Set drift anchor
+                  Add drift correction
                 </button>
               </div>
               <p className="muted">
-                Match this video frame to the telemetry cursor. A later second
-                anchor corrects clock drift. Frame steps assume 30 fps.
+                Sync links the frame you see now to the telemetry moment at the
+                lap clock, {new Date(stamp).toLocaleTimeString("en-GB")}. A
+                second sync further along the video corrects clock drift.
               </p>
+              <ol className="sync-steps">
+                <li>
+                  Find a recognizable moment in the video and pause on it.
+                </li>
+                <li>
+                  Put the telemetry on the same moment: type a lap time in the
+                  clock, click the map or a chart, or use the arrow keys.
+                </li>
+                <li>Press Sync here.</li>
+              </ol>
             </div>
           )}
         </>

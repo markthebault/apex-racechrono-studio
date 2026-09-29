@@ -33,7 +33,6 @@ import {
   blocksOptimal,
   opportunities,
   optimalWith,
-  stepCursor,
   STEP_MS,
   SHIFT_STEP_FACTOR,
   type Sector,
@@ -53,6 +52,7 @@ import { TrackMap } from "./Map";
 import { Opportunities } from "./Opportunities";
 import { SessionSummary } from "./SessionSummary";
 import { LapReview } from "./LapReview";
+import { ClockInput } from "./ClockInput";
 import { lapStatus, STATUS_LABEL } from "./lapStatus";
 import { summarize } from "./summary";
 import { classifyFile, describeImport } from "./files";
@@ -110,6 +110,8 @@ export default function App() {
     [traces, setTraces] = useState<Trace[]>([]),
     [summaryId, setSummaryId] = useState<string | null>(null),
     [reviewId, setReviewId] = useState<string | null>(null),
+    // Exact lap A time in ms. Position alone cannot say when, because a stop repeats it.
+    [exact, setExact] = useState<number | null>(null),
     [oppDay, setOppDay] = useState<string>(),
     [busyA, setBusyA] = useState(false),
     [busyB, setBusyB] = useState(false);
@@ -372,10 +374,27 @@ export default function App() {
   useEffect(() => {
     if (a) {
       setRange([0, a.length]);
+      setExact(null);
       setCursor(0);
     }
   }, [a?.id, a?.length]);
-  const at = a ? interpolate(a.distance, a.times, cursor) : 0;
+  const at = a ? (exact ?? interpolate(a.distance, a.times, cursor)) : 0;
+  // Moving by position forgets the exact time; moving by time keeps it.
+  const moveCursor = (d: number) => {
+    setExact(null);
+    setCursor(d);
+  };
+  const live = useRef({ a, at, range });
+  live.current = { a, at, range };
+  const goTo = (t: number) => {
+    const { a: A } = live.current;
+    if (!A) return;
+    const time = Math.max(A.times[0], Math.min(A.times[A.times.length - 1], t));
+    const d = interpolate(A.times, A.distance, time);
+    if (!Number.isFinite(d)) return;
+    setExact(time);
+    setCursor(d);
+  };
   const elapsed = a ? at - a.lap.start : 0;
   const bcursor =
     settings.mode === "time" && b
@@ -439,11 +458,21 @@ export default function App() {
         (e.key === "ArrowRight" ? 1 : -1) *
         STEP_MS *
         (e.shiftKey ? SHIFT_STEP_FACTOR : 1);
-      setCursor((d) => stepCursor(a, d, ms, range));
+      // Step by time, so a stop is crossed at the same pace as everything else.
+      const { a: A, at: now, range: r } = live.current;
+      const t = now + ms;
+      const d = interpolate(
+        A.times,
+        A.distance,
+        Math.max(A.times[0], Math.min(A.times[A.times.length - 1], t)),
+      );
+      if (Number.isFinite(d) && d >= r[0] && d <= r[1]) goTo(t);
+      else if (Number.isFinite(d))
+        moveCursor(Math.max(r[0], Math.min(r[1], d)));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [a, range, tab]);
+  }, [a, tab]);
   useEffect(() => {
     if (!playing || !a) return;
     let last = performance.now();
@@ -452,15 +481,15 @@ export default function App() {
         dt = now - last;
       last = now;
       if (busyA || busyB) return;
-      setCursor((d) => {
-        const t = interpolate(a.distance, a.times, d) + dt;
-        const next = interpolate(a.times, a.distance, t);
-        if (!Number.isFinite(next) || next >= range[1]) {
-          setPlaying(false);
-          return range[1];
-        }
-        return next;
-      });
+      // Advance by time, not position: position does not change during a stop.
+      const t = live.current.at + dt;
+      const d = interpolate(a.times, a.distance, t);
+      if (!Number.isFinite(d) || d >= range[1]) {
+        setPlaying(false);
+        moveCursor(range[1]);
+        return;
+      }
+      goTo(t);
     }, 80);
     return () => clearInterval(timer);
   }, [playing, a, range, busyA, busyB]);
@@ -1174,7 +1203,7 @@ export default function App() {
                     cursor={cursor}
                     range={range}
                     gates={gates}
-                    onCursor={setCursor}
+                    onCursor={moveCursor}
                     height={settings.mapHeight}
                     onHeight={(mapHeight) => patch({ mapHeight })}
                   />
@@ -1183,13 +1212,17 @@ export default function App() {
                       className="play"
                       aria-label={playing ? "Pause playback" : "Play playback"}
                       onClick={() => {
-                        if (cursor >= range[1]) setCursor(range[0]);
+                        if (cursor >= range[1]) moveCursor(range[0]);
                         setPlaying(!playing);
                       }}
                     >
                       {playing ? <Pause size={16} /> : <Play size={16} />}
                     </button>
-                    <span className="mono">{lapTime(elapsed)}</span>
+                    <ClockInput
+                      ms={elapsed}
+                      max={a.lap.end - a.lap.start}
+                      onJump={(ms) => goTo(a.lap.start + ms)}
+                    />
                     <input
                       aria-label="Track position"
                       type="range"
@@ -1197,7 +1230,7 @@ export default function App() {
                       max={range[1]}
                       step="1"
                       value={cursor}
-                      onChange={(e) => setCursor(+e.target.value)}
+                      onChange={(e) => moveCursor(+e.target.value)}
                     />
                     <span className="mono">
                       {(cursor / 1000).toFixed(2)} km
@@ -1233,6 +1266,7 @@ export default function App() {
                         setFiles={setFiles}
                         onBusy={setBusyA}
                         onPause={() => setPlaying(false)}
+                        onGoTo={goTo}
                         onUnlink={() =>
                           setSync((s) => ({
                             ...s,
@@ -1349,10 +1383,10 @@ export default function App() {
                       }
                       cursor={cursor}
                       range={range}
-                      onCursor={setCursor}
+                      onCursor={moveCursor}
                       onRange={(r) => {
                         setRange(r);
-                        setCursor(r[0]);
+                        moveCursor(r[0]);
                         setPlaying(false);
                       }}
                       onChange={(next) =>
@@ -1809,7 +1843,7 @@ export default function App() {
                                   setTab("Analyze");
                                   setTimeout(() => {
                                     setRange([s.start, s.end]);
-                                    setCursor(s.start);
+                                    moveCursor(s.start);
                                   }, 100);
                                 }}
                               >
@@ -1870,7 +1904,7 @@ export default function App() {
                         cursor={cursor}
                         range={range}
                         gates={gates}
-                        onCursor={setCursor}
+                        onCursor={moveCursor}
                         height={450}
                         onHeight={() => {}}
                         center={center}
