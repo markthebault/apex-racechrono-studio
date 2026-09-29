@@ -1889,3 +1889,16 @@ button.collection-name:focus-visible {
   color: #a9b6bd;
   line-height: 1.5;
 }
+
+.start-time {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid #2a2f34;
+  border-bottom: 1px solid #2a2f34;
+  margin: 8px 0;
+}
+.start-time input {
+  width: 130px;
+}

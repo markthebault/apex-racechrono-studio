@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Binding, Identity, Session } from "./model";
 import { readCreationTime, matchVideoStart } from "./mp4";
+import { formatWallClock, formatWallDate, parseWallClock } from "./wallclock";
 import {
   getHandle,
   saveHandle,
   videoTime,
+  stampAtVideo,
   work,
   validateSync,
 } from "./storage";
@@ -42,7 +44,8 @@ export function VideoPanel({
     [error, setError] = useState(""),
     [editing, setEditing] = useState(false),
     [selected, setSelected] = useState(0),
-    [note, setNote] = useState("");
+    [note, setNote] = useState(""),
+    [startText, setStartText] = useState<string | null>(null);
   const [seek, setSeek] = useState(0);
   const vt = binding ? videoTime(binding, stamp) : NaN;
   const active =
@@ -52,6 +55,18 @@ export function VideoPanel({
   const index = editing ? selected : active;
   const clip = binding?.clips[index];
   const url = clip ? files[clip.sha256] : undefined;
+  // When the video and the GPS data start and end, on the telemetry clock.
+  const videoStart = binding?.anchors.length ? stampAtVideo(binding, 0) : NaN;
+  const videoEnd =
+    binding?.anchors.length && binding.clips.length
+      ? stampAtVideo(
+          binding,
+          Math.max(...binding.clips.map((c) => c.start + c.duration)),
+        )
+      : NaN;
+  const overlapStart = session ? Math.max(videoStart, session.start) : NaN;
+  const overlapEnd = session ? Math.min(videoEnd, session.end) : NaN;
+  const overlaps = overlapStart < overlapEnd;
   useEffect(() => {
     if (editing || !video.current || !url || !clip || !Number.isFinite(vt)) {
       onBusy(false);
@@ -250,6 +265,68 @@ export function VideoPanel({
       setError(String(e));
     }
   }
+  // The typed start time replaces the anchors, so any drift correction is dropped.
+  function commitStart() {
+    const text = startText;
+    setStartText(null);
+    if (text === null || !binding || !session) return;
+    const t = parseWallClock(text, session.start);
+    if (!Number.isFinite(t)) {
+      setError(
+        "Type the start time as 14:10:04, 14:10:04.500 or 2026-09-27 14:10:04.",
+      );
+      return;
+    }
+    const next = {
+      ...binding,
+      anchors: [{ videoSeconds: 0, sessionTimestamp: t }],
+    };
+    try {
+      validateSync({ format: "apex-sync", version: 1, bindings: [next] });
+      onBinding(next);
+      setError("");
+      setNote(
+        `Video start set to ${formatWallClock(t)}. Press Go to where video and GPS overlap to check it against the map.`,
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  // Show the first moment that has both picture and GPS data.
+  function goToOverlap() {
+    if (!binding || !overlaps) return;
+    onGoTo?.(overlapStart);
+    const seconds = videoTime(binding, overlapStart);
+    const at = binding.clips.findIndex(
+      (c) => seconds >= c.start && seconds <= c.start + c.duration,
+    );
+    if (at >= 0 && at !== selected) setSelected(at);
+    if (at >= 0 && video.current && at === index)
+      video.current.currentTime = seconds - binding.clips[at].start;
+  }
+  // Tie the frame on screen to the moment the GPS data begins.
+  function syncToGpsStart() {
+    if (!binding || !clip || !video.current || !session) return;
+    const next = {
+      ...binding,
+      anchors: [
+        {
+          videoSeconds: clip.start + video.current.currentTime,
+          sessionTimestamp: session.start,
+        },
+      ],
+    };
+    try {
+      validateSync({ format: "apex-sync", version: 1, bindings: [next] });
+      onBinding(next);
+      setError("");
+      setNote(
+        `This frame is now linked to ${formatWallClock(session.start)}, where the GPS data starts.`,
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
   return (
     <section className="video-panel">
       <div className="panel-heading">
@@ -409,6 +486,58 @@ export function VideoPanel({
                 />{" "}
                 s in recording
               </label>
+              <div className="start-time">
+                <label>
+                  Video started at{" "}
+                  <input
+                    aria-label="Time the video started, local time"
+                    placeholder="14:10:04"
+                    value={
+                      startText ??
+                      (Number.isFinite(videoStart)
+                        ? formatWallClock(videoStart)
+                        : "")
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => setStartText(e.target.value)}
+                    onBlur={commitStart}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter") commitStart();
+                      if (e.key === "Escape") setStartText(null);
+                    }}
+                  />{" "}
+                  <small>
+                    {session ? formatWallDate(session.start) : ""}, local time
+                  </small>
+                </label>
+                {session && (
+                  <p className="muted">
+                    GPS data {formatWallClock(session.start)} to{" "}
+                    {formatWallClock(session.end)}.{" "}
+                    {Number.isFinite(videoStart)
+                      ? `Video ${formatWallClock(videoStart)} to ${formatWallClock(videoEnd)}. ` +
+                        (overlaps
+                          ? `Both run from ${formatWallClock(overlapStart)} to ${formatWallClock(overlapEnd)}.`
+                          : "They do not overlap, so check the start time.")
+                      : "Type the time the video started, or sync by hand below."}
+                    {binding.anchors.length === 2 &&
+                      " Typing a start time removes the drift correction."}
+                  </p>
+                )}
+                <div className="row">
+                  <button disabled={!overlaps} onClick={goToOverlap}>
+                    Go to where video and GPS overlap
+                  </button>
+                  <button
+                    disabled={!url}
+                    title="Pause on the frame that matches the moment the GPS data begins"
+                    onClick={syncToGpsStart}
+                  >
+                    Link this frame to GPS start
+                  </button>
+                </div>
+              </div>
               <div className="row">
                 <button
                   className="sync-button"

@@ -169,6 +169,16 @@ export function videoTime(binding: Binding, stamp: number) {
     : 0.001;
   return a.videoSeconds + (stamp - a.sessionTimestamp) * rate;
 }
+// The telemetry timestamp that a moment of the video (seconds on the clip timeline) falls at.
+export function stampAtVideo(binding: Binding, seconds: number) {
+  const [a, b] = binding.anchors;
+  if (!a) return NaN;
+  const rate = b
+    ? (b.videoSeconds - a.videoSeconds) /
+      (b.sessionTimestamp - a.sessionTimestamp)
+    : 0.001;
+  return a.sessionTimestamp + (seconds - a.videoSeconds) / rate;
+}
 export async function exportProject(settings: Settings, sync: SyncFile) {
   const records = (await load()).records;
   const files: Record<string, Uint8Array> = {

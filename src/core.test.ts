@@ -37,7 +37,8 @@ import { hoverBus } from "./hover";
 import { readCreationTime, matchVideoStart } from "./mp4";
 import { parseLapTime } from "./model";
 import { lapStatus, explainIssue, canInclude, STATUS_LABEL } from "./lapStatus";
-import { validateSync, videoTime } from "./storage";
+import { validateSync, videoTime, stampAtVideo } from "./storage";
+import { formatWallClock, parseWallClock } from "./wallclock";
 // Real recordings are private and are not in the repository. Set APEX_FIXTURES to a
 // folder that holds them under these names to run the tests that need them. Without
 // it those tests are skipped.
@@ -999,5 +1000,67 @@ describe("typed lap time", () => {
   it("rejects nonsense", () => {
     for (const bad of ["", "abc", "1:75", "1:2:3:4", "-5", "12:"])
       expect(parseLapTime(bad)).toBeNaN();
+  });
+});
+
+describe("video start time", () => {
+  const identity = { sha256: "a".repeat(64), name: "s.rcz", size: 1 };
+  const binding = (
+    anchors: { videoSeconds: number; sessionTimestamp: number }[],
+  ) => ({
+    session: identity,
+    clips: [{ ...identity, name: "v.mp4", duration: 600, start: 0 }],
+    anchors,
+  });
+  it("finds the telemetry time of any video moment, and undoes videoTime", () => {
+    const one = binding([{ videoSeconds: 0, sessionTimestamp: 1_000_000 }]);
+    expect(stampAtVideo(one, 0)).toBe(1_000_000);
+    expect(stampAtVideo(one, 60)).toBe(1_060_000);
+    const two = binding([
+      { videoSeconds: 10, sessionTimestamp: 1_000_000 },
+      { videoSeconds: 70, sessionTimestamp: 1_061_000 },
+    ]);
+    for (const v of [0, 10, 33.3, 70, 500])
+      expect(videoTime(two, stampAtVideo(two, v))).toBeCloseTo(v, 6);
+    expect(stampAtVideo(binding([]), 5)).toBeNaN();
+  });
+  it("shows the video starting a minute before the GPS data", () => {
+    const gpsStart = Date.UTC(2026, 8, 27, 12, 1, 0);
+    const b = binding([
+      { videoSeconds: 0, sessionTimestamp: Date.UTC(2026, 8, 27, 12, 0, 0) },
+    ]);
+    // The GPS data begins one minute into the video.
+    expect(videoTime(b, gpsStart)).toBe(60);
+  });
+  it("reads a typed local time on the session's date, or with its own date", () => {
+    const ref = new Date(2026, 8, 27, 13, 40, 35).getTime();
+    expect(parseWallClock("14:10:04", ref)).toBe(
+      new Date(2026, 8, 27, 14, 10, 4).getTime(),
+    );
+    expect(parseWallClock("14:10", ref)).toBe(
+      new Date(2026, 8, 27, 14, 10, 0).getTime(),
+    );
+    expect(parseWallClock("14:10:04.5", ref)).toBe(
+      new Date(2026, 8, 27, 14, 10, 4, 500).getTime(),
+    );
+    expect(parseWallClock("2026-09-28 09:05:00", ref)).toBe(
+      new Date(2026, 8, 28, 9, 5, 0).getTime(),
+    );
+    expect(formatWallClock(parseWallClock("14:10:04.250", ref))).toBe(
+      "14:10:04.250",
+    );
+  });
+  it("rejects times that do not exist", () => {
+    const ref = Date.now();
+    for (const bad of [
+      "",
+      "25:00",
+      "12:75",
+      "12:00:99",
+      "abc",
+      "2026-02-31 10:00:00",
+      "1200",
+    ])
+      expect(parseWallClock(bad, ref)).toBeNaN();
   });
 });
