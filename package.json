@@ -1,0 +1,41 @@
+{
+  "name": "apex-racechrono-studio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "catalog": "node scripts/catalog.mjs",
+    "deploy": "sh scripts/deploy.sh"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "hash-wasm": "^4.12.0",
+    "idb": "^8.0.3",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.20",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "fake-indexeddb": "^6.2.5",
+    "prettier": "^3.9.9",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.0",
+    "vitest": "^4.1.11"
+  },
+  "license": "MIT",
+  "description": "Local browser workspace for RaceChrono sessions: GPS traces, lap comparison, telemetry charts, sector-based theoretical laps and synchronized video.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/markthebault/apex-racechrono-studio.git"
+  },
+  "homepage": "https://github.com/markthebault/apex-racechrono-studio#readme"
+}

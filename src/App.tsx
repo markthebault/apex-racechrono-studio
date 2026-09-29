@@ -1,0 +1,1935 @@
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Activity,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ChevronRight,
+  Flag,
+  FolderOpen,
+  Layers,
+  MapPin,
+  Play,
+  Pause,
+  Plus,
+  Settings2,
+  Video,
+  WifiOff,
+  X,
+} from "lucide-react";
+import type {
+  Session,
+  Settings,
+  SyncFile,
+  Trace,
+  Binding,
+  Comparison,
+} from "./model";
+import { definitions, lapTime } from "./model";
+import {
+  align,
+  trace,
+  optimal,
+  virtual,
+  interpolate,
+  blocksOptimal,
+  opportunities,
+  stepCursor,
+  STEP_MS,
+  SHIFT_STEP_FACTOR,
+  type Sector,
+} from "./analysis";
+import {
+  load,
+  saveSession,
+  saveState,
+  work,
+  download,
+  exportProject,
+  readProject,
+  commitProject,
+  validateSync,
+} from "./storage";
+import { TrackMap } from "./Map";
+import { Opportunities } from "./Opportunities";
+import { SessionSummary } from "./SessionSummary";
+import { summarize } from "./summary";
+import { classifyFile, describeImport } from "./files";
+import {
+  groupSessions,
+  isSelected,
+  toggleSessions,
+  onlySessions,
+  selectionState,
+  opportunityScope,
+} from "./groups";
+import { Chart } from "./Chart";
+import { VideoPanel } from "./Video";
+const defaults: Settings = {
+  speedUnit: "km/h",
+  colors: ["#63e5d2", "#f8a36b"],
+  videoHeight: 280,
+  a: "",
+  b: "",
+  charts: [
+    { id: "speed", channels: ["speed"], height: 135 },
+    { id: "rpm", channels: ["rpm"], height: 110 },
+    { id: "throttle", channels: ["throttle"], height: 100 },
+  ],
+  excluded: [],
+  included: [],
+  layouts: [],
+  mode: "distance",
+  mapHeight: 340,
+  collection: [],
+  group: "track",
+  extras: [],
+};
+// Colors for laps added after lap B. Lap A and B keep the colors from the settings.
+const EXTRA_COLORS = ["#c792ea", "#f2d15b", "#7fb2ff", "#ff7a90"];
+const emptySync: SyncFile = { format: "apex-sync", version: 1, bindings: [] };
+export default function App() {
+  const [sessions, setSessions] = useState<Session[]>([]),
+    [settings, setSettings] = useState(defaults),
+    [sync, setSync] = useState(emptySync),
+    [ready, setReady] = useState(false),
+    [tab, setTab] = useState("Analyze"),
+    [status, setStatus] = useState(""),
+    [error, setError] = useState(""),
+    [cursor, setCursor] = useState(0),
+    [range, setRange] = useState<[number, number]>([0, 20000]),
+    [playing, setPlaying] = useState(false),
+    [files, setFiles] = useState<Record<string, string>>({}),
+    [showVideos, setShowVideos] = useState(false),
+    [catalog, setCatalog] = useState<
+      { id: string; name: string; lat: number; lon: number }[]
+    >([]),
+    [search, setSearch] = useState(""),
+    [center, setCenter] = useState<[number, number]>(),
+    [traces, setTraces] = useState<Trace[]>([]),
+    [summaryId, setSummaryId] = useState<string | null>(null),
+    [oppDay, setOppDay] = useState<string>(),
+    [busyA, setBusyA] = useState(false),
+    [busyB, setBusyB] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const sessionsRef = useRef<Session[]>([]),
+    importRef = useRef<(list: File[]) => void>(() => {}),
+    [dragging, setDragging] = useState(false);
+  const input = useRef<HTMLInputElement>(null),
+    abort = useRef<AbortController | null>(null);
+  const patch = (p: Partial<Settings>) => setSettings((s) => ({ ...s, ...p }));
+  const report = (e: unknown) =>
+    setError(e instanceof Error ? e.message : String(e));
+  useEffect(() => {
+    load()
+      .then((d) => {
+        setSessions(
+          d.records.map((r) => r.session).sort((a, b) => a.start - b.start),
+        );
+        if (d.settings) setSettings({ ...defaults, ...d.settings });
+        if (d.sync) setSync(d.sync);
+        setReady(true);
+      })
+      .catch(report);
+    fetch("/tracks.json")
+      .then((r) => r.json())
+      .then((d) => setCatalog(d.tracks))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!ready) return;
+    setSaving(true);
+    const t = setTimeout(() => {
+      Promise.all([saveState("settings", settings), saveState("sync", sync)])
+        .then(() => setSaving(false))
+        .catch(report);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [settings, sync, ready]);
+  const activeTrack = sessions.find((s) =>
+    s.laps.some((l) => l.id === settings.a),
+  )?.trackId;
+  const reference = useMemo(() => {
+    const pool = sessions
+      .filter((s) => activeTrack === undefined || s.trackId === activeTrack)
+      .flatMap((s) => s.laps);
+    return (
+      settings.layouts.find((l) => pool.some((p) => p.id === l.referenceId))
+        ?.referenceId ||
+      [...pool]
+        .filter((l) => !l.issues.length)
+        .sort((a, b) => a.end - a.start - (b.end - b.start))[0]?.id ||
+      pool[0]?.id
+    );
+  }, [sessions, settings.layouts, activeTrack]);
+  useEffect(() => {
+    if (!sessions.length) return;
+    let live = true;
+    work<{ traces: Trace[] }>("analysis", {
+      sessions,
+      reference,
+      ids: [],
+      gates: [],
+    })
+      .then((d) => {
+        if (live) setTraces(d.traces);
+      })
+      .catch(report);
+    return () => {
+      live = false;
+    };
+  }, [sessions, reference]);
+  const ref = traces.find((t) => t.id === reference);
+  const layout = settings.layouts.find((l) => l.referenceId === reference);
+  const gates = useMemo(
+    () =>
+      layout?.gates ||
+      (ref
+        ? Array.from(
+            { length: Math.max(2, Math.round(ref.length / 1000)) + 1 },
+            (_, i) =>
+              (ref.length * i) / Math.max(2, Math.round(ref.length / 1000)),
+          )
+        : []),
+    [layout, ref],
+  );
+  // A lap can feed sector times when it aligns to the reference and nobody excluded it.
+  const usable = (t: Trace) =>
+    !t.issues.some(
+      (i) => i.includes("Incompatible") || i.includes("Ambiguous"),
+    ) &&
+    !settings.excluded.includes(t.id) &&
+    (!blocksOptimal(t.issues) || settings.included.includes(t.id));
+  const eligible = useMemo(
+    () =>
+      traces.filter(
+        (t) =>
+          (!settings.collection.length ||
+            settings.collection.includes(t.sessionId)) &&
+          usable(t),
+      ),
+    [traces, settings.excluded, settings.included, settings.collection],
+  );
+  const sectors = useMemo(() => optimal(eligible, gates), [eligible, gates]);
+  const ideal = useMemo(
+    () => (sectors.length === gates.length - 1 ? virtual(sectors) : undefined),
+    [sectors, gates],
+  );
+  // Only sessions ticked in the collection reach the pickers, totals and optimal lap.
+  const inScope = (sessionId: string) =>
+    isSelected(settings.collection, sessionId);
+  const scoped = useMemo(
+    () => traces.filter((t) => isSelected(settings.collection, t.sessionId)),
+    [traces, settings.collection],
+  );
+  const multiTrack =
+    new Set(sessions.filter((x) => inScope(x.id)).map((x) => x.trackId)).size >
+    1;
+  const a =
+      scoped.find((t) => t.id === settings.a) ||
+      scoped.find((t) => t.id === reference) ||
+      scoped[0] ||
+      traces[0],
+    b =
+      settings.b === "optimal"
+        ? ideal
+        : scoped.find(
+            (t) =>
+              t.id === settings.b &&
+              !t.issues.some((i) => i.includes("Incompatible")),
+          );
+  useEffect(() => {
+    if (!ready || !traces.length) return;
+    const current = traces.find((t) => t.id === settings.a);
+    if (current && !inScope(current.sessionId)) {
+      const next = scoped.find((t) => t.id === reference) || scoped[0];
+      if (next) patch({ a: next.id });
+    }
+    const other = traces.find((t) => t.id === settings.b);
+    if (other && !inScope(other.sessionId)) patch({ b: "" });
+  }, [settings.collection, traces]);
+  useEffect(() => {
+    if (!settings.a && ref) {
+      const other = traces.find(
+        (t) => t.sessionId !== ref.sessionId && !t.issues.length,
+      );
+      patch({ a: ref.id, b: other?.id || "" });
+    }
+  }, [ref, settings.a]);
+  // Laps added after B. Slot C is the first, then D, E and F.
+  const extraLaps = useMemo(
+    () =>
+      (settings.extras ?? []).flatMap((e, i) => {
+        const trace =
+          e.id === "optimal"
+            ? ideal
+            : scoped.find(
+                (t) =>
+                  t.id === e.id &&
+                  !t.issues.some((x) => x.includes("Incompatible")),
+              );
+        return trace && trace.id !== a?.id
+          ? [{ ...e, tag: String.fromCharCode(67 + i), trace }]
+          : [];
+      }),
+    [settings.extras, scoped, ideal, a?.id],
+  );
+  const displayTraces = useMemo(
+    () =>
+      [a, b, ...extraLaps.map((x) => x.trace)].map((t) => {
+        if (!t || settings.speedUnit === "km/h") return t;
+        return {
+          ...t,
+          channels: {
+            ...t.channels,
+            ...Object.fromEntries(
+              ["speed", "obdSpeed"]
+                .filter((id) => t.channels[id])
+                .map((id) => [
+                  id,
+                  Float64Array.from(t.channels[id], (v) => v / 1.609344),
+                ]),
+            ),
+          },
+        };
+      }),
+    [a, b, extraLaps, settings.speedUnit],
+  );
+  const sa = sessions.find((s) => s.id === a?.sessionId);
+  const sb = sessions.find((s) => s.id === b?.sessionId);
+  // Opportunities use the ticked sessions, or all sessions of one day by default.
+  const scope = useMemo(
+    () => opportunityScope(sessions, settings.collection, oppDay, a?.sessionId),
+    [sessions, settings.collection, oppDay, a?.sessionId],
+  );
+  const opp = useMemo(() => {
+    const onTrack = (t: Trace) =>
+      sessions.find((x) => x.id === t.sessionId)?.trackId === sa?.trackId;
+    const inScopeLaps = traces.filter(
+      (t) => scope.ids.includes(t.sessionId) && onTrack(t),
+    );
+    const sectorsHere = optimal(inScopeLaps.filter(usable), gates);
+    const fastest = inScopeLaps
+      .filter(
+        (t) =>
+          !t.issues.some(
+            (i) =>
+              i.includes("Incompatible") ||
+              i.includes("Ambiguous") ||
+              i.includes("Interrupted") ||
+              i.includes("invalid"),
+          ),
+      )
+      .sort((x, y) => x.lap.end - x.lap.start - (y.lap.end - y.lap.start))[0];
+    if (!fastest || !gates.length || sectorsHere.length !== gates.length - 1)
+      return undefined;
+    return {
+      fastest,
+      list: opportunities(fastest, sectorsHere),
+      bestMs: fastest.lap.end - fastest.lap.start,
+      optMs: sectorsHere.reduce((n, x) => n + x.time, 0),
+    };
+  }, [traces, scope, gates, settings.excluded, settings.included, sa?.trackId]);
+  // Best sectors of a single session, for the lap summary.
+  const sessionOpt = useMemo(() => {
+    const out = new Map<string, number>();
+    if (gates.length < 2) return out;
+    for (const x of sessions) {
+      const sec = optimal(
+        traces.filter((t) => t.sessionId === x.id && usable(t)),
+        gates,
+      );
+      if (sec.length === gates.length - 1)
+        out.set(
+          x.id,
+          sec.reduce((n, v) => n + v.time, 0),
+        );
+    }
+    return out;
+  }, [sessions, traces, gates, settings.excluded, settings.included]);
+  const summarySession = sessions.find((x) => x.id === summaryId);
+  useEffect(() => {
+    if (a) {
+      setRange([0, a.length]);
+      setCursor(0);
+    }
+  }, [a?.id, a?.length]);
+  const at = a ? interpolate(a.distance, a.times, cursor) : 0;
+  const elapsed = a ? at - a.lap.start : 0;
+  const bcursor =
+    settings.mode === "time" && b
+      ? interpolate(b.times, b.distance, b.lap.start + elapsed)
+      : cursor;
+  const comparisons: Comparison[] = [
+    ...(displayTraces[1]
+      ? [
+          {
+            trace: displayTraces[1],
+            color: settings.colors[1],
+            cursor: bcursor,
+            tag: "B",
+          },
+        ]
+      : []),
+    ...extraLaps.map((x, i) => ({
+      trace: displayTraces[2 + i]!,
+      color: x.color,
+      cursor:
+        settings.mode === "time"
+          ? interpolate(
+              x.trace.times,
+              x.trace.distance,
+              x.trace.lap.start + elapsed,
+            )
+          : cursor,
+      tag: x.tag,
+    })),
+  ];
+  const bt = b ? interpolate(b.distance, b.times, bcursor) : 0;
+  const delta = b ? elapsed - (bt - b.lap.start) : NaN;
+  const optimalSource =
+    b?.id === "optimal"
+      ? sectors.find((s) => bcursor >= s.start && bcursor <= s.end)
+      : undefined;
+  const videoSessionB = optimalSource
+    ? sessions.find((s) => s.id === optimalSource.source.sessionId)
+    : sb;
+  const videoStampB = optimalSource
+    ? interpolate(
+        optimalSource.source.distance,
+        optimalSource.source.times,
+        bcursor,
+      )
+    : bt;
+  // Left and right arrows move lap A by 0.2 s of lap time; Shift moves 10 times as far.
+  useEffect(() => {
+    if (!a || (tab !== "Analyze" && tab !== "Video sync")) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (
+        el?.isContentEditable ||
+        ["INPUT", "SELECT", "TEXTAREA"].includes(el?.tagName || "")
+      )
+        return;
+      e.preventDefault();
+      const ms =
+        (e.key === "ArrowRight" ? 1 : -1) *
+        STEP_MS *
+        (e.shiftKey ? SHIFT_STEP_FACTOR : 1);
+      setCursor((d) => stepCursor(a, d, ms, range));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [a, range, tab]);
+  useEffect(() => {
+    if (!playing || !a) return;
+    let last = performance.now();
+    const timer = setInterval(() => {
+      const now = performance.now(),
+        dt = now - last;
+      last = now;
+      if (busyA || busyB) return;
+      setCursor((d) => {
+        const t = interpolate(a.distance, a.times, d) + dt;
+        const next = interpolate(a.times, a.distance, t);
+        if (!Number.isFinite(next) || next >= range[1]) {
+          setPlaying(false);
+          return range[1];
+        }
+        return next;
+      });
+    }, 80);
+    return () => clearInterval(timer);
+  }, [playing, a, range, busyA, busyB]);
+  // Sessions, projects and sync files, from the file picker or dropped anywhere on the
+  // window. Each file is handled on its own, so one bad file does not stop the rest.
+  async function importFiles(list: File[]) {
+    setError("");
+    abort.current = new AbortController();
+    const added: Session[] = [],
+      failures: string[] = [];
+    let alreadyThere = 0,
+      videos = 0;
+    for (const file of list) {
+      if (abort.current?.signal.aborted) break;
+      try {
+        const kind = classifyFile(file.name);
+        if (kind === "video") {
+          videos++;
+        } else if (kind === "unsupported") {
+          failures.push(`${file.name}: not a RaceChrono session (.rcz)`);
+        } else if (kind === "sync") {
+          const imported = validateSync(JSON.parse(await file.text()));
+          setSync((st) => ({
+            ...st,
+            bindings: [
+              ...st.bindings.filter(
+                (b) =>
+                  !imported.bindings.some(
+                    (n) => n.session.sha256 === b.session.sha256,
+                  ),
+              ),
+              ...imported.bindings,
+            ],
+          }));
+          setStatus(
+            "Synchronization restored. Select missing sessions and videos to relink.",
+          );
+        } else if (kind === "project") {
+          setStatus("Checking project…");
+          const p = await readProject(file);
+          await commitProject(
+            p.records,
+            { ...defaults, ...p.manifest.settings },
+            p.manifest.sync,
+          );
+          setSessions((await load()).records.map((r) => r.session));
+          setSettings({ ...defaults, ...p.manifest.settings });
+          setSync(p.manifest.sync);
+          setStatus("Project restored. Videos can be relinked by hash.");
+        } else {
+          setStatus(`Reading ${file.name}`);
+          const s = await work<Session>(
+            "decode",
+            { file },
+            (p) =>
+              setStatus(`Importing ${file.name} · ${Math.round(p * 100)}%`),
+            abort.current!.signal,
+          );
+          await saveSession(s, file);
+          if (sessionsRef.current.some((x) => x.id === s.id)) alreadyThere++;
+          else added.push(s);
+          setSessions((old) =>
+            old.some((x) => x.id === s.id)
+              ? old.map((x) => (x.id === s.id ? s : x))
+              : [...old, s],
+          );
+          setSettings((st) =>
+            st.collection.length && !st.collection.includes(s.id)
+              ? { ...st, collection: [...st.collection, s.id] }
+              : st,
+          );
+        }
+      } catch (e) {
+        failures.push(
+          `${file.name}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
+    abort.current = null;
+    if (failures.length) setError(failures.join("\n"));
+    if (added.length || alreadyThere || videos) {
+      // A session on a track that was not in the collection before opens the analyzer
+      // on that track, using its fastest lap.
+      const before = new Set(sessionsRef.current.map((x) => x.trackId));
+      const first = added[0];
+      const line = describeImport(
+        added.map((x) => ({
+          track: x.track,
+          laps: x.laps.length,
+          newTrack: !before.has(x.trackId),
+        })),
+        alreadyThere,
+        videos,
+      );
+      if (first && !before.has(first.trackId)) {
+        const best = summarize(first).rows.find((r) => r.best);
+        if (best) patch({ a: best.id, b: "" });
+      }
+      if (line) setStatus(line);
+    }
+  }
+  sessionsRef.current = sessions;
+  importRef.current = importFiles;
+  // Files can be dropped anywhere on the window. Listening on the window also stops the
+  // browser from opening a file that misses the app.
+  useEffect(() => {
+    let depth = 0;
+    const files = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types || []).includes("Files");
+    const enter = (e: DragEvent) => {
+      if (!files(e)) return;
+      e.preventDefault();
+      depth++;
+      setDragging(true);
+    };
+    const over = (e: DragEvent) => {
+      if (!files(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+    const leave = (e: DragEvent) => {
+      if (!files(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) setDragging(false);
+    };
+    const drop = (e: DragEvent) => {
+      if (!files(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragging(false);
+      importRef.current(Array.from(e.dataTransfer?.files || []));
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragover", over);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
+  // Clicking a track in the sidebar: keep the ticked sessions of that track, or take all
+  // of them when none is ticked, drop other tracks, and open its fastest lap.
+  function analyzeTrack(group: Session[]) {
+    const ticked = group.filter((x) => inScope(x.id)),
+      chosen = ticked.length ? ticked : group;
+    const all = sessions.map((x) => x.id);
+    const laps = chosen.flatMap((x) => summarize(x).rows.filter((r) => r.best));
+    const fastest = laps.sort((p, q) => p.ms - q.ms)[0];
+    const keep = chosen.some((x) => x.laps.some((l) => l.id === settings.a));
+    patch({
+      collection: onlySessions(
+        all,
+        chosen.map((x) => x.id),
+      ),
+      ...(keep || !fastest ? {} : { a: fastest.id, b: "" }),
+    });
+    setTab("Analyze");
+  }
+  // Development only: loads the recordings the dev server was pointed at (see README).
+  async function examples() {
+    try {
+      const fs = [];
+      for (let i = 0; ; i++) {
+        const r = await fetch(`/__private/session/${i}`);
+        if (r.status === 404 && i > 0) break;
+        if (!r.ok)
+          throw Error("Local recordings are unavailable. Use Import sessions.");
+        fs.push(new File([await r.blob()], `local-session-${i + 1}.rcz`));
+      }
+      await importFiles(fs);
+    } catch (e) {
+      report(e);
+    }
+  }
+  function updateBinding(binding: Binding) {
+    setSync((s) => ({
+      ...s,
+      bindings: [
+        ...s.bindings.filter(
+          (b) => b.session.sha256 !== binding.session.sha256,
+        ),
+        binding,
+      ],
+    }));
+  }
+  function saveGates(next: number[]) {
+    if (!ref) return;
+    if (
+      next.length < 2 ||
+      next[0] < 0 ||
+      next.at(-1)! > ref.length ||
+      next.some((n, i) => !Number.isFinite(n) || (i > 0 && n <= next[i - 1]))
+    )
+      return report(Error("Gates must be increasing and inside the lap."));
+    const l = {
+      id: layout?.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: sa?.track || "Custom layout",
+      referenceId: ref.id,
+      gates: next,
+      generated: false,
+    };
+    patch({
+      layouts: [...settings.layouts.filter((x) => x.referenceId !== ref.id), l],
+    });
+  }
+  const groupBy = settings.group === "date" ? "date" : "track",
+    groups = useMemo(
+      () => groupSessions(sessions, groupBy),
+      [sessions, groupBy],
+    ),
+    allIds = sessions.map((x) => x.id);
+  const labels = (t: Trace) => {
+    const owner = sessions.find((x) => x.id === t.sessionId);
+    const time = new Date(owner?.start || 0).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return `${multiTrack ? `${owner?.track} · ` : ""}${time} · Lap ${t.lap.number} · ${lapTime(t.lap.end - t.lap.start)}`;
+  };
+  return (
+    <div className="app">
+      {dragging && (
+        <div className="drop-overlay" aria-hidden="true">
+          <div>
+            Drop RaceChrono files to import
+            <small>
+              Each session joins your collection under the track named in the
+              file
+            </small>
+          </div>
+        </div>
+      )}
+      <aside className="sidebar">
+        <a className="brand" href="#">
+          <span className="brand-mark">A</span>apex
+          <span className="brand-dot">.</span>
+        </a>
+        <div className="workspace-label">YOUR WORKSPACE</div>
+        <nav>
+          {[
+            ["Analyze", Activity],
+            ["Sessions", FolderOpen],
+            ["Optimal lap", Layers],
+            ["Tracks", MapPin],
+            ["Video sync", Video],
+          ].map(([name, Icon]) => (
+            <button
+              key={String(name)}
+              aria-label={String(name)}
+              className={tab === name ? "selected" : ""}
+              onClick={() => {
+                setTab(String(name));
+                if (name === "Video sync") setShowVideos(true);
+              }}
+            >
+              {<Icon size={18} />}
+              <span>{String(name)}</span>
+              {name === "Sessions" && <small>{sessions.length}</small>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-divider" />
+        <div className="workspace-label">CURRENT COLLECTION</div>
+        {sessions.length === 0 && (
+          <div className="collection-name">
+            <Flag size={16} />
+            Your first track day
+          </div>
+        )}
+        {groupSessions(sessions, "track").map((g) => {
+          return (
+            <div
+              className={`track-group${g.sessions.some((x) => x.trackId === sa?.trackId) ? " active" : ""}`}
+              key={g.key}
+            >
+              <button
+                className="collection-name"
+                aria-pressed={g.sessions.some((x) => x.trackId === sa?.trackId)}
+                title={`Analyze ${g.label}`}
+                onClick={() => analyzeTrack(g.sessions)}
+              >
+                <Flag size={16} />
+                <span>{g.label}</span>
+                <small>{g.sessions.length}</small>
+              </button>
+              {g.sessions.map((s) => (
+                <label className="session-check" key={s.id}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected(settings.collection, s.id)}
+                    onChange={(e) =>
+                      patch({
+                        collection: toggleSessions(
+                          sessions.map((x) => x.id),
+                          settings.collection,
+                          [s.id],
+                          e.target.checked,
+                        ),
+                      })
+                    }
+                  />
+                  <span>
+                    {new Date(s.start).toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                    <small>
+                      {new Date(s.start).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      · {s.laps.length} laps
+                    </small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          );
+        })}
+        <button
+          className="sidebar-import"
+          onClick={() => input.current?.click()}
+        >
+          <Plus size={16} /> Add session
+        </button>
+        <div className="sidebar-bottom">
+          <WifiOff size={16} />
+          <div>
+            Local by design<small>Your recordings stay on this device.</small>
+          </div>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div className="breadcrumb">
+            Workspace <ChevronRight size={13} /> {sa?.track || "Track analysis"}{" "}
+            <ChevronRight size={13} />
+            <span>{tab}</span>
+          </div>
+          <div className="header-actions">
+            <span className="saved">
+              <span className="live-dot" />{" "}
+              {saving ? "Saving…" : "Saved locally"}
+            </span>
+            <button onClick={() => exportProject(settings, sync).catch(report)}>
+              <ArrowDownToLine size={14} /> Export project
+            </button>
+            <button className="primary" onClick={() => input.current?.click()}>
+              <Plus size={15} /> Import sessions
+            </button>
+          </div>
+        </header>
+        <input
+          ref={input}
+          hidden
+          multiple
+          type="file"
+          accept=".rcz,.json,.zip"
+          onChange={(e) => {
+            importFiles(Array.from(e.target.files || []));
+            e.target.value = "";
+          }}
+        />
+        <div className="content">
+          <div className="page-title">
+            <div>
+              <div className="eyebrow">TRACK ANALYSIS STUDIO</div>
+              <h1>
+                {tab === "Analyze"
+                  ? sa?.track || "Find your next second."
+                  : tab}
+              </h1>
+              <p>
+                {tab === "Analyze"
+                  ? "Every corner. Every input. A clearer picture of your lap."
+                  : tab === "Optimal lap"
+                    ? "Your best sectors, brought together across track days."
+                    : tab === "Video sync"
+                      ? "Match the moment. Save the timing. Keep your original files."
+                      : tab === "Tracks"
+                        ? "Find a circuit, then define the layout you actually drove."
+                        : "Your track days, all in one place."}
+              </p>
+            </div>
+            {sessions.length > 0 && (
+              <span className="outline-badge">
+                {sessions.filter((x) => inScope(x.id)).length === 1
+                  ? "1 SESSION"
+                  : `${sessions.filter((x) => inScope(x.id)).length} SESSIONS`}{" "}
+                <span> / </span>
+                {(() => {
+                  const laps = sessions
+                    .filter((x) => inScope(x.id))
+                    .reduce((n, x) => n + x.laps.length, 0);
+                  return `${laps} ${laps === 1 ? "LAP" : "LAPS"}`;
+                })()}
+              </span>
+            )}
+          </div>
+          {error && (
+            <div className="notice error">
+              {error}
+              <button onClick={() => setError("")}>
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          {status && (
+            <div className="notice">
+              {status}
+              {abort.current && (
+                <button onClick={() => abort.current?.abort()}>Cancel</button>
+              )}
+              <button onClick={() => setStatus("")}>
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          {sync.bindings.some(
+            (b) => !sessions.some((s) => s.id === b.session.sha256),
+          ) && (
+            <div className="notice">
+              Saved sync references missing sessions. Import the original RCZ
+              files; matching hashes restore their bindings.
+            </div>
+          )}
+          {!sessions.length && tab !== "Tracks" ? (
+            <div className="welcome">
+              <div className="welcome-track">
+                <svg viewBox="0 0 500 200">
+                  <path d="M65 140 C15 70 100 10 170 45 L230 80 Q260 85 280 40 Q310 5 350 40 L440 125 Q475 190 400 172 L320 135 Q280 110 260 150 Q235 195 185 157 L150 120 Q100 95 65 140Z" />
+                </svg>
+              </div>
+              <span className="eyebrow">LESS GUESSWORK. BETTER LAPS.</span>
+              <h2>Your next track day starts here.</h2>
+              <p>
+                Drop RaceChrono sessions here to explore your racing line,
+                <br />
+                compare your inputs, and find time in every sector.
+              </p>
+              <button
+                className="primary"
+                onClick={() => input.current?.click()}
+              >
+                <ArrowUpFromLine size={17} /> Import RaceChrono files
+              </button>
+              {import.meta.env.DEV && (
+                <button onClick={examples}>
+                  Open local recordings (development)
+                </button>
+              )}
+              <small>
+                RCZ sessions · Sync files · Project archives
+                <br />
+                Processed in your browser. Nothing uploaded.
+              </small>
+            </div>
+          ) : (
+            <>
+              {(tab === "Analyze" || tab === "Video sync") && a && (
+                <>
+                  <div className="stats">
+                    <div>
+                      <span>BEST RECORDED LAP</span>
+                      <strong>
+                        {lapTime(
+                          Math.min(
+                            ...traces
+                              .filter(
+                                (t) =>
+                                  (!settings.collection.length ||
+                                    settings.collection.includes(
+                                      t.sessionId,
+                                    )) &&
+                                  sessions.find((x) => x.id === t.sessionId)
+                                    ?.trackId === sa?.trackId &&
+                                  !t.issues.some(
+                                    (i) =>
+                                      i.includes("invalid") ||
+                                      i.includes("Interrupted"),
+                                  ),
+                              )
+                              .map((t) => t.lap.end - t.lap.start),
+                          ),
+                        )}
+                      </strong>
+                      <small>Recorded time · GPS quality shown per lap</small>
+                    </div>
+                    <div>
+                      <span>THEORETICAL OPTIMAL</span>
+                      <strong className="cyan">
+                        {ideal ? lapTime(ideal.lap.end) : "—"}
+                      </strong>
+                      <small>
+                        {sectors.length} best sectors · {eligible.length}{" "}
+                        eligible laps
+                      </small>
+                    </div>
+                    <div>
+                      <span>POTENTIAL GAIN</span>
+                      <strong>
+                        {ideal
+                          ? (
+                              Math.max(
+                                0,
+                                Math.min(
+                                  ...eligible.map(
+                                    (t) => t.lap.end - t.lap.start,
+                                  ),
+                                ) - ideal.lap.end,
+                              ) / 1000
+                            ).toFixed(3) + " s"
+                          : "—"}
+                      </strong>
+                      <small>Compared with the best eligible lap</small>
+                    </div>
+                    <div>
+                      <span>TRACK DISTANCE</span>
+                      <strong>
+                        {(a.length / 1000).toFixed(2)} <em>km</em>
+                      </strong>
+                      <small>GPS reference · Imported gates preserved</small>
+                    </div>
+                  </div>
+                  <div className="comparison-bar">
+                    <div className="lap-picker">
+                      <input
+                        aria-label="Lap A color"
+                        type="color"
+                        value={settings.colors[0]}
+                        onChange={(e) =>
+                          patch({
+                            colors: [e.target.value, settings.colors[1]],
+                          })
+                        }
+                      />
+                      <select
+                        aria-label="Lap A"
+                        value={a.id}
+                        onChange={(e) => patch({ a: e.target.value })}
+                      >
+                        {scoped.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {labels(t)}
+                            {t.issues.length ? " ⚠" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <span className="versus">vs</span>
+                    <div className="lap-picker">
+                      <input
+                        aria-label="Lap B color"
+                        type="color"
+                        value={settings.colors[1]}
+                        onChange={(e) =>
+                          patch({
+                            colors: [settings.colors[0], e.target.value],
+                          })
+                        }
+                      />
+                      <select
+                        aria-label="Lap B"
+                        value={settings.b}
+                        onChange={(e) => patch({ b: e.target.value })}
+                      >
+                        <option value="">Choose comparison lap</option>
+                        {scoped
+                          .filter(
+                            (t) =>
+                              t.id !== a.id &&
+                              !t.issues.some((i) => i.includes("Incompatible")),
+                          )
+                          .map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {labels(t)}
+                            </option>
+                          ))}
+                        {ideal && (
+                          <option value="optimal">
+                            Theoretical optimal · {lapTime(ideal.lap.end)}
+                          </option>
+                        )}
+                      </select>
+                    </div>
+                    {(settings.extras ?? []).map((e, i) => {
+                      const tag = String.fromCharCode(67 + i),
+                        set = (next: Partial<typeof e>) =>
+                          patch({
+                            extras: (settings.extras ?? []).map((x, k) =>
+                              k === i ? { ...x, ...next } : x,
+                            ),
+                          });
+                      return (
+                        <Fragment key={i}>
+                          <span className="versus">vs</span>
+                          <div className="lap-picker">
+                            <input
+                              aria-label={`Lap ${tag} color`}
+                              type="color"
+                              value={e.color}
+                              onChange={(ev) => set({ color: ev.target.value })}
+                            />
+                            <select
+                              aria-label={`Lap ${tag}`}
+                              value={e.id}
+                              onChange={(ev) => set({ id: ev.target.value })}
+                            >
+                              <option value="">Choose lap {tag}</option>
+                              {scoped
+                                .filter(
+                                  (t) =>
+                                    t.id !== a.id &&
+                                    !t.issues.some((x) =>
+                                      x.includes("Incompatible"),
+                                    ),
+                                )
+                                .map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {labels(t)}
+                                  </option>
+                                ))}
+                              {ideal && (
+                                <option value="optimal">
+                                  Theoretical optimal · {lapTime(ideal.lap.end)}
+                                </option>
+                              )}
+                            </select>
+                            <button
+                              className="remove-lap"
+                              aria-label={`Remove lap ${tag}`}
+                              title={`Remove lap ${tag}`}
+                              onClick={() =>
+                                patch({
+                                  extras: (settings.extras ?? []).filter(
+                                    (_, k) => k !== i,
+                                  ),
+                                })
+                              }
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </Fragment>
+                      );
+                    })}
+                    {(settings.extras ?? []).length < EXTRA_COLORS.length && (
+                      <button
+                        className="add-lap"
+                        onClick={() =>
+                          patch({
+                            extras: [
+                              ...(settings.extras ?? []),
+                              {
+                                id: "",
+                                color:
+                                  EXTRA_COLORS[(settings.extras ?? []).length],
+                              },
+                            ],
+                          })
+                        }
+                      >
+                        + Add lap
+                      </button>
+                    )}
+                    <div className="comparison-actions">
+                      <select
+                        aria-label="Speed units"
+                        value={settings.speedUnit}
+                        onChange={(e) =>
+                          patch({
+                            speedUnit: e.target.value as Settings["speedUnit"],
+                          })
+                        }
+                      >
+                        <option>km/h</option>
+                        <option>mph</option>
+                      </select>
+                      <select
+                        aria-label="Comparison alignment"
+                        value={settings.mode}
+                        onChange={(e) =>
+                          patch({ mode: e.target.value as Settings["mode"] })
+                        }
+                      >
+                        <option value="distance">By distance</option>
+                        <option value="time">Elapsed-time replay</option>
+                      </select>
+                      <button
+                        className={showVideos ? "active" : ""}
+                        onClick={() => setShowVideos(!showVideos)}
+                      >
+                        <Video size={15} /> Video
+                      </button>
+                    </div>
+                  </div>
+                  {multiTrack && (
+                    <div className="notice">
+                      Your selection spans several tracks. The analyzer compares
+                      laps on one track at a time, currently {sa?.track}. Pick a
+                      lap from another track in Lap A to switch.
+                    </div>
+                  )}
+                  {a.issues.length > 0 && (
+                    <div className="notice">Lap A: {a.issues.join(" · ")}</div>
+                  )}
+                  {b && b.issues.length > 0 && (
+                    <div className="notice">Lap B: {b.issues.join(" · ")}</div>
+                  )}
+                  <TrackMap
+                    a={a}
+                    others={comparisons}
+                    colors={settings.colors}
+                    cursor={cursor}
+                    range={range}
+                    gates={gates}
+                    onCursor={setCursor}
+                    height={settings.mapHeight}
+                    onHeight={(mapHeight) => patch({ mapHeight })}
+                  />
+                  <div className="transport">
+                    <button
+                      className="play"
+                      aria-label={playing ? "Pause playback" : "Play playback"}
+                      onClick={() => {
+                        if (cursor >= range[1]) setCursor(range[0]);
+                        setPlaying(!playing);
+                      }}
+                    >
+                      {playing ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                    <span className="mono">{lapTime(elapsed)}</span>
+                    <input
+                      aria-label="Track position"
+                      type="range"
+                      min={range[0]}
+                      max={range[1]}
+                      step="1"
+                      value={cursor}
+                      onChange={(e) => setCursor(+e.target.value)}
+                    />
+                    <span className="mono">
+                      {(cursor / 1000).toFixed(2)} km
+                    </span>
+                    <span className="delta">
+                      Δ{" "}
+                      {Number.isFinite(delta)
+                        ? `${delta > 0 ? "+" : ""}${(delta / 1000).toFixed(3)} s`
+                        : "—"}
+                    </span>
+                    <button onClick={() => setRange([0, a.length])}>
+                      Reset zoom
+                    </button>
+                  </div>
+                  {showVideos && (
+                    <div
+                      className="videos"
+                      style={
+                        {
+                          "--video-height": `${settings.videoHeight}px`,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <VideoPanel
+                        label="LAP A"
+                        session={sa}
+                        stamp={at}
+                        binding={sync.bindings.find(
+                          (b) => b.session.sha256 === sa?.id,
+                        )}
+                        onBinding={updateBinding}
+                        files={files}
+                        setFiles={setFiles}
+                        onBusy={setBusyA}
+                        onPause={() => setPlaying(false)}
+                        onUnlink={() =>
+                          setSync((s) => ({
+                            ...s,
+                            bindings: s.bindings.filter(
+                              (b) => b.session.sha256 !== sa?.id,
+                            ),
+                          }))
+                        }
+                        playing={playing && !busyB}
+                      />
+                      <VideoPanel
+                        label="LAP B"
+                        session={videoSessionB}
+                        stamp={videoStampB}
+                        binding={sync.bindings.find(
+                          (b) => b.session.sha256 === videoSessionB?.id,
+                        )}
+                        onBinding={updateBinding}
+                        files={files}
+                        setFiles={setFiles}
+                        onBusy={setBusyB}
+                        onPause={() => setPlaying(false)}
+                        onUnlink={() =>
+                          setSync((s) => ({
+                            ...s,
+                            bindings: s.bindings.filter(
+                              (b) => b.session.sha256 !== videoSessionB?.id,
+                            ),
+                          }))
+                        }
+                        playing={playing && !busyA}
+                      />
+                    </div>
+                  )}
+                  {showVideos && (
+                    <label className="video-size">
+                      Video panel height{" "}
+                      <input
+                        aria-label="Video height"
+                        type="range"
+                        min="180"
+                        max="500"
+                        value={settings.videoHeight}
+                        onChange={(e) =>
+                          patch({ videoHeight: +e.target.value })
+                        }
+                      />
+                    </label>
+                  )}
+                  {tab === "Video sync" && (
+                    <div className="notice">
+                      <span>
+                        Download timing only. RCZ and video filenames, SHA-256
+                        hashes, clip order, and anchors are included. No
+                        recording data.
+                      </span>
+                      <button
+                        onClick={() =>
+                          download(
+                            "track-day.rcsync.json",
+                            JSON.stringify(sync, null, 2),
+                          )
+                        }
+                      >
+                        <ArrowDownToLine size={14} /> Download sync file
+                      </button>
+                    </div>
+                  )}
+                  <div className="section-heading">
+                    <h2>
+                      Telemetry <span>{settings.charts.length} charts</span>
+                    </h2>
+                    <div>
+                      <small>Drag a chart to zoom into a section</small>
+                      <select
+                        aria-label="Add chart"
+                        value=""
+                        onChange={(e) =>
+                          patch({
+                            charts: [
+                              ...settings.charts,
+                              {
+                                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                                channels: [e.target.value],
+                                height: 130,
+                              },
+                            ],
+                          })
+                        }
+                      >
+                        <option value="">+ Add chart</option>
+                        {Object.keys(a.channels).map((k) => (
+                          <option key={k} value={k}>
+                            {definitions[k]?.name || k}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {settings.charts.map((c, i) => (
+                    <Chart
+                      key={c.id}
+                      config={c}
+                      a={displayTraces[0]!}
+                      others={comparisons}
+                      colors={settings.colors}
+                      speedUnit={settings.speedUnit}
+                      joins={
+                        [b, ...extraLaps.map((x) => x.trace)].some(
+                          (t) => t?.id === "optimal",
+                        )
+                          ? gates.slice(1, -1)
+                          : []
+                      }
+                      cursor={cursor}
+                      range={range}
+                      onCursor={setCursor}
+                      onRange={(r) => {
+                        setRange(r);
+                        setCursor(r[0]);
+                        setPlaying(false);
+                      }}
+                      onChange={(next) =>
+                        patch({
+                          charts: settings.charts.map((x) =>
+                            x.id === c.id ? next : x,
+                          ),
+                        })
+                      }
+                      onRemove={() =>
+                        patch({
+                          charts: settings.charts.filter((x) => x.id !== c.id),
+                        })
+                      }
+                      onUp={() => {
+                        const next = [...settings.charts];
+                        if (i) [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                        patch({ charts: next });
+                      }}
+                    />
+                  ))}
+                  <div className="footnote">
+                    GPS-derived alignment · Missing samples remain gaps · Brake
+                    pressure is unavailable unless recorded
+                  </div>
+                </>
+              )}
+              {tab === "Sessions" && (
+                <>
+                  <div className="sessions-toolbar">
+                    <div
+                      className="segmented"
+                      role="group"
+                      aria-label="Group sessions by"
+                    >
+                      {(["track", "date"] as const).map((g) => (
+                        <button
+                          key={g}
+                          className={groupBy === g ? "active" : ""}
+                          aria-pressed={groupBy === g}
+                          onClick={() => patch({ group: g })}
+                        >
+                          {g === "track" ? "By track" : "By date"}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="muted">
+                      {sessions.filter((x) => inScope(x.id)).length} of{" "}
+                      {sessions.length} sessions in the analyzer ·{" "}
+                      {sessions
+                        .filter((x) => inScope(x.id))
+                        .reduce((n, x) => n + x.laps.length, 0)}{" "}
+                      laps
+                    </span>
+                    <button
+                      className="primary"
+                      onClick={() => setTab("Analyze")}
+                    >
+                      Open analyzer
+                    </button>
+                  </div>
+                  {groups.map((g) => {
+                    const gids = g.sessions.map((x) => x.id),
+                      state = selectionState(settings.collection, gids),
+                      times = g.sessions
+                        .flatMap((x) => x.laps)
+                        .filter(
+                          (l) =>
+                            !l.issues.some(
+                              (i) =>
+                                i.includes("Interrupted") ||
+                                i.includes("invalid"),
+                            ),
+                        )
+                        .map((l) => l.end - l.start);
+                    return (
+                      <section className="session-group" key={g.key}>
+                        <div className="group-heading">
+                          <label>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select all sessions of ${g.label}`}
+                              checked={state === "all"}
+                              ref={(el) => {
+                                if (el) el.indeterminate = state === "some";
+                              }}
+                              onChange={() =>
+                                patch({
+                                  collection: toggleSessions(
+                                    allIds,
+                                    settings.collection,
+                                    gids,
+                                    state !== "all",
+                                  ),
+                                })
+                              }
+                            />
+                            <h2>{g.label}</h2>
+                          </label>
+                          <small>
+                            {g.sessions.length}{" "}
+                            {g.sessions.length === 1 ? "session" : "sessions"} ·{" "}
+                            {g.sessions.reduce((n, x) => n + x.laps.length, 0)}{" "}
+                            laps
+                            {times.length > 0 &&
+                              ` · best ${lapTime(Math.min(...times))}`}
+                          </small>
+                          <button
+                            onClick={() => {
+                              patch({
+                                collection: onlySessions(allIds, gids),
+                              });
+                              setTab("Analyze");
+                            }}
+                          >
+                            Analyze only these
+                          </button>
+                        </div>
+                        <div className="session-grid">
+                          {g.sessions.map((s) => (
+                            <section
+                              className="session-card"
+                              key={s.id}
+                              onClick={(e) => {
+                                if (
+                                  !(e.target as HTMLElement).closest(
+                                    "input,button,label,summary,details,a,table",
+                                  )
+                                )
+                                  setSummaryId(s.id);
+                              }}
+                            >
+                              <div className="panel-heading">
+                                <span>
+                                  <Flag size={16} /> {s.track}
+                                </span>
+                                <span>
+                                  {new Date(s.start).toLocaleDateString()}
+                                </span>
+                              </div>
+                              <label className="card-check">
+                                <input
+                                  type="checkbox"
+                                  checked={inScope(s.id)}
+                                  onChange={(e) =>
+                                    patch({
+                                      collection: toggleSessions(
+                                        allIds,
+                                        settings.collection,
+                                        [s.id],
+                                        e.target.checked,
+                                      ),
+                                    })
+                                  }
+                                />
+                                Include in analyzer
+                              </label>
+                              <button
+                                className="card-summary"
+                                onClick={() => setSummaryId(s.id)}
+                              >
+                                Lap times
+                              </button>
+                              <h2>
+                                {new Date(s.start).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}{" "}
+                                session
+                              </h2>
+                              <p>{s.filename}</p>
+                              <div className="session-metrics">
+                                <span>
+                                  <strong>{s.laps.length}</strong> laps
+                                </span>
+                                <span>
+                                  <strong>{s.channels.length}</strong> channels
+                                </span>
+                                <span>
+                                  <strong>
+                                    {s.times.length.toLocaleString()}
+                                  </strong>{" "}
+                                  GPS samples
+                                </span>
+                              </div>
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>Lap</th>
+                                    <th>Time</th>
+                                    <th>Optimal eligibility</th>
+                                    <th />
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {s.laps.map((l) => {
+                                    const t = traces.find((t) => t.id === l.id),
+                                      issues = t?.issues || l.issues,
+                                      included = eligible.some(
+                                        (t) => t.id === l.id,
+                                      );
+                                    return (
+                                      <tr key={l.id}>
+                                        <td>
+                                          {l.number.toString().padStart(2, "0")}
+                                        </td>
+                                        <td className="mono">
+                                          {lapTime(l.end - l.start)}
+                                        </td>
+                                        <td>
+                                          <label>
+                                            <input
+                                              type="checkbox"
+                                              checked={included}
+                                              onChange={(e) =>
+                                                patch(
+                                                  e.target.checked
+                                                    ? {
+                                                        excluded:
+                                                          settings.excluded.filter(
+                                                            (id) => id !== l.id,
+                                                          ),
+                                                        included: [
+                                                          ...settings.included,
+                                                          l.id,
+                                                        ],
+                                                      }
+                                                    : {
+                                                        excluded: [
+                                                          ...settings.excluded,
+                                                          l.id,
+                                                        ],
+                                                        included:
+                                                          settings.included.filter(
+                                                            (id) => id !== l.id,
+                                                          ),
+                                                      },
+                                                )
+                                              }
+                                            />
+                                            {blocksOptimal(issues) ? (
+                                              <span
+                                                className="orange"
+                                                title={issues.join("\n")}
+                                              >
+                                                Review required
+                                              </span>
+                                            ) : (
+                                              "Eligible"
+                                            )}
+                                          </label>
+                                          {issues.length > 0 && (
+                                            <small>
+                                              {issues.join(" · ")}
+                                              {!blocksOptimal(issues) &&
+                                                " · Only unaffected sectors count"}
+                                            </small>
+                                          )}
+                                        </td>
+                                        <td>
+                                          <button
+                                            onClick={() => {
+                                              patch({ a: l.id });
+                                              setTab("Analyze");
+                                            }}
+                                          >
+                                            Analyze ↗
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                              <details>
+                                <summary>
+                                  Channel provenance & archive details
+                                </summary>
+                                {s.channels.map((c) => (
+                                  <p key={c.id}>
+                                    {c.name} · {c.unit}
+                                    <small>{c.source}</small>
+                                  </p>
+                                ))}
+                                <p>
+                                  Unmapped archive channels preserved:{" "}
+                                  {s.unknown.length}
+                                </p>
+                                <small className="hash">SHA-256 {s.id}</small>
+                                <p>
+                                  RaceChrono optimal:{" "}
+                                  {lapTime(s.importedOptimal)}. Original sector
+                                  definitions are not included in this archive.
+                                </p>
+                              </details>
+                            </section>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </>
+              )}
+              {tab === "Optimal lap" && (
+                <>
+                  <div className="optimal-hero">
+                    <div className="eyebrow">THEORETICAL BEST</div>
+                    <h2>
+                      {ideal ? lapTime(ideal.lap.end) : "Incomplete sectors"}
+                    </h2>
+                    <p>
+                      {eligible.length} eligible laps ·{" "}
+                      {new Set(eligible.map((t) => t.sessionId)).size} sessions
+                      · {sectors.length} sectors
+                    </p>
+                    <button
+                      className="primary"
+                      disabled={!ideal}
+                      onClick={() => {
+                        patch({ b: "optimal" });
+                        setTab("Analyze");
+                      }}
+                    >
+                      Compare with your optimal lap <ChevronRight size={16} />
+                    </button>
+                  </div>
+                  {opp && (
+                    <Opportunities
+                      shape={opp.fastest}
+                      opps={opp.list}
+                      bestMs={opp.bestMs}
+                      optMs={opp.optMs}
+                      scopeLabel={scope.label}
+                      days={
+                        scope.mode === "day"
+                          ? groupSessions(sessions, "date").map((g) => ({
+                              key: g.key,
+                              label: g.label,
+                            }))
+                          : undefined
+                      }
+                      day={scope.day}
+                      onDay={setOppDay}
+                      labelOf={labels}
+                    />
+                  )}
+                  <div className="notice">
+                    {layout?.generated === false
+                      ? "Custom sector gates"
+                      : "Generated sectors, approximately 1 km each"}
+                    . This is a theoretical sum. Sector joins can have different
+                    speeds and racing lines.
+                  </div>
+                  <section className="panel gate-editor">
+                    <h2>Timing gates</h2>
+                    <p>
+                      Distances along the reference lap. Changing these creates
+                      a custom timed section; imported lap boundaries stay
+                      intact.
+                    </p>
+                    <div className="row">
+                      <label>
+                        Start{" "}
+                        <input
+                          aria-label="Layout start gate"
+                          type="number"
+                          defaultValue={Math.round(gates[0] || 0)}
+                          key={"start" + gates[0]}
+                          onBlur={(e) => {
+                            const start = +e.target.value;
+                            saveGates([
+                              start,
+                              ...gates.slice(1).filter((g) => g > start),
+                            ]);
+                          }}
+                        />{" "}
+                        m
+                      </label>
+                      <label>
+                        Finish{" "}
+                        <input
+                          aria-label="Layout finish gate"
+                          type="number"
+                          defaultValue={Math.floor(gates.at(-1) || 0)}
+                          key={"finish" + gates.at(-1)}
+                          onBlur={(e) => {
+                            const finish = +e.target.value;
+                            saveGates([
+                              ...gates.slice(0, -1).filter((g) => g < finish),
+                              finish,
+                            ]);
+                          }}
+                        />{" "}
+                        m
+                      </label>
+                      <button
+                        onClick={() =>
+                          patch({
+                            layouts: settings.layouts.filter(
+                              (l) => l.referenceId !== reference,
+                            ),
+                          })
+                        }
+                      >
+                        Reset generated gates
+                      </button>
+                    </div>
+                  </section>
+                  <section className="panel">
+                    <div className="section-heading">
+                      <h2>Sector breakdown</h2>
+                      <button
+                        onClick={() => {
+                          if (ref)
+                            saveGates(
+                              [...gates, cursor]
+                                .filter((v, i, arr) => arr.indexOf(v) === i)
+                                .sort((a, b) => a - b),
+                            );
+                        }}
+                      >
+                        Add gate at cursor
+                      </button>
+                    </div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Sector</th>
+                          <th>Finish distance</th>
+                          <th>Best time</th>
+                          <th>Source recording</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sectors.map((s: Sector) => (
+                          <tr key={s.index}>
+                            <td>
+                              <span className="sector-number">
+                                {String(s.index + 1).padStart(2, "0")}
+                              </span>
+                            </td>
+                            <td>
+                              <input
+                                aria-label={`Sector ${s.index + 1} finish distance`}
+                                className="distance-input"
+                                type="number"
+                                defaultValue={Math.round(s.end)}
+                                key={s.end}
+                                onBlur={(e) => {
+                                  const next = [...gates];
+                                  next[s.index + 1] = +e.target.value;
+                                  saveGates(next);
+                                }}
+                              />{" "}
+                              m
+                            </td>
+                            <td className="cyan mono">{lapTime(s.time)}</td>
+                            <td>{labels(s.source)}</td>
+                            <td>
+                              <button
+                                onClick={() => {
+                                  patch({ a: s.source.id });
+                                  setTab("Analyze");
+                                  setTimeout(() => {
+                                    setRange([s.start, s.end]);
+                                    setCursor(s.start);
+                                  }, 100);
+                                }}
+                              >
+                                Inspect sector ↗
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                </>
+              )}
+              {tab === "Tracks" && (
+                <>
+                  <div className="track-search">
+                    <MapPin size={20} />
+                    <input
+                      aria-label="Search tracks"
+                      placeholder="Search the global track catalog…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <span>{catalog.length.toLocaleString()} mapped tracks</span>
+                  </div>
+                  <div className="tracks-layout">
+                    <section className="track-results">
+                      {catalog
+                        .filter((t) =>
+                          t.name.toLowerCase().includes(search.toLowerCase()),
+                        )
+                        .slice(0, 70)
+                        .map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => setCenter([t.lat, t.lon])}
+                          >
+                            <MapPin size={16} />
+                            <span>
+                              {t.name}
+                              <small>
+                                {t.lat.toFixed(3)}°, {t.lon.toFixed(3)}°
+                              </small>
+                            </span>
+                            <ChevronRight size={15} />
+                          </button>
+                        ))}
+                      {!catalog.length && (
+                        <p>
+                          Catalog unavailable. Import a session to create a
+                          layout from its GPS recording.
+                        </p>
+                      )}
+                    </section>
+                    <div>
+                      <TrackMap
+                        a={a}
+                        cursor={cursor}
+                        range={range}
+                        gates={gates}
+                        onCursor={setCursor}
+                        height={450}
+                        onHeight={() => {}}
+                        center={center}
+                      />
+                      <section className="panel">
+                        <h2>Your timed layout</h2>
+                        <p>
+                          {sa?.track || "Import a session to define a layout."}
+                        </p>
+                        <button
+                          disabled={!ref}
+                          onClick={() => {
+                            saveGates(gates);
+                            setTab("Optimal lap");
+                          }}
+                        >
+                          Create / edit layout from GPS
+                        </button>
+                        <p className="muted">
+                          Imported lap boundaries define start and finish.
+                          Sector gates are editable by distance along the GPS
+                          reference.
+                        </p>
+                      </section>
+                    </div>
+                  </div>
+                  <p className="footnote">
+                    Catalog: © OpenStreetMap contributors · ODbL · Coverage
+                    depends on mapped tracks. Venue geometry does not define
+                    timing gates.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+        </div>
+        <footer>
+          <span className="brand-mini">apex.</span>
+          <span>A little more understanding. A little less lap time.</span>
+          <button
+            onClick={() =>
+              download("track-day.rcsync.json", JSON.stringify(sync, null, 2))
+            }
+          >
+            <ArrowDownToLine size={13} /> Download sync file
+          </button>
+        </footer>
+      </main>
+      {summarySession && (
+        <SessionSummary
+          session={summarySession}
+          summary={summarize(summarySession)}
+          optMs={
+            sessionOpt.get(summarySession.id) ?? summarySession.importedOptimal
+          }
+          optSource={sessionOpt.has(summarySession.id) ? "app" : "racechrono"}
+          speedUnit={settings.speedUnit}
+          onClose={() => setSummaryId(null)}
+          onLap={(id) => {
+            patch({ a: id });
+            setSummaryId(null);
+            setTab("Analyze");
+          }}
+        />
+      )}
+    </div>
+  );
+}
