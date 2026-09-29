@@ -35,3 +35,6 @@ export function parseWallClock(text: string, reference: number) {
   const out = new Date(y, mo, d, h, min, s, frac);
   return out.getMonth() === mo ? out.getTime() : NaN;
 }
+// Local time of day to a tenth of a second, for example 14:10:04.5.
+export const formatClockTenths = (ms: number) =>
+  Number.isFinite(ms) ? formatWallClock(ms).slice(0, 10) : "—";

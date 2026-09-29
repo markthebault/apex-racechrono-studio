@@ -3,6 +3,7 @@ import type { Trace, ChartConfig, Comparison } from "./model";
 import { definitions } from "./model";
 import { interpolate, atDistance, elapsedDelta } from "./analysis";
 import { hoverBus } from "./hover";
+import { formatClockTenths } from "./wallclock";
 export function Chart({
   config,
   colors,
@@ -280,10 +281,23 @@ export function Chart({
         const v = atDistance(t, t.channels[id] || [], hover);
         return Number.isFinite(v) ? v.toFixed(id === "rpm" ? 0 : 1) : "—";
       };
-      const rows = config.channels.map((id) => ({
-        label: definitions[id]?.name || id,
-        values: [a, ...others.map((o) => o.trace)].map((t) => value(t, id)),
-      }));
+      const traces = [a, ...others.map((o) => o.trace)];
+      // Clock time of each lap at this point, from the GPS timestamps in the recording.
+      // The theoretical lap is stitched together from several laps and has no clock time.
+      const rows = [
+        {
+          label: "Time of day",
+          values: traces.map((t) =>
+            t.sessionId === "optimal"
+              ? "—"
+              : formatClockTenths(interpolate(t.distance, t.times, hover)),
+          ),
+        },
+        ...config.channels.map((id) => ({
+          label: definitions[id]?.name || id,
+          values: traces.map((t) => value(t, id)),
+        })),
+      ];
       const head =
         (hover / 1000).toFixed(3) +
         " km" +

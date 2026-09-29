@@ -38,7 +38,11 @@ import { readCreationTime, matchVideoStart } from "./mp4";
 import { parseLapTime } from "./model";
 import { lapStatus, explainIssue, canInclude, STATUS_LABEL } from "./lapStatus";
 import { validateSync, videoTime, stampAtVideo } from "./storage";
-import { formatWallClock, parseWallClock } from "./wallclock";
+import {
+  formatWallClock,
+  parseWallClock,
+  formatClockTenths,
+} from "./wallclock";
 // Real recordings are private and are not in the repository. Set APEX_FIXTURES to a
 // folder that holds them under these names to run the tests that need them. Without
 // it those tests are skipped.
@@ -1062,5 +1066,16 @@ describe("video start time", () => {
       "1200",
     ])
       expect(parseWallClock(bad, ref)).toBeNaN();
+  });
+});
+
+describe("time of day in the hover box", () => {
+  it("shows local seconds and tenths, or a dash when there is no time", () => {
+    const t = new Date(2026, 8, 27, 14, 10, 4, 560).getTime();
+    expect(formatClockTenths(t)).toBe("14:10:04.5");
+    expect(formatClockTenths(new Date(2026, 8, 27, 9, 5, 0, 0).getTime())).toBe(
+      "09:05:00.0",
+    );
+    expect(formatClockTenths(NaN)).toBe("—");
   });
 });
