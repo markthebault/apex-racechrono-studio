@@ -17,6 +17,7 @@ import {
   nearestOnTrace,
   stepCursor,
   opportunities,
+  optimalWith,
   STEP_MS,
   SHIFT_STEP_FACTOR,
   BRAKE_G,
@@ -33,6 +34,7 @@ import {
 import { summarize, formatGap } from "./summary";
 import { classifyFile, describeImport } from "./files";
 import { hoverBus } from "./hover";
+import { lapStatus, explainIssue, canInclude, STATUS_LABEL } from "./lapStatus";
 import { validateSync, videoTime } from "./storage";
 // Real recordings are private and are not in the repository. Set APEX_FIXTURES to a
 // folder that holds them under these names to run the tests that need them. Without
@@ -802,5 +804,107 @@ describe("chart hover channel", () => {
     off();
     hoverBus.set(300);
     expect(seen).toEqual([120, null]);
+  });
+});
+
+describe("lap review", () => {
+  const base = {
+    issues: [] as string[],
+    sameTrack: true,
+    selected: true,
+    excluded: false,
+    included: false,
+  };
+  it("says why a lap does or does not count", () => {
+    expect(lapStatus(base)).toBe("counts");
+    expect(
+      lapStatus({ ...base, issues: ["GPS gap longer than 2 seconds"] }),
+    ).toBe("counts");
+    expect(
+      lapStatus({ ...base, issues: ["Marked invalid by RaceChrono"] }),
+    ).toBe("review");
+    expect(
+      lapStatus({
+        ...base,
+        issues: ["Marked invalid by RaceChrono"],
+        included: true,
+      }),
+    ).toBe("included");
+    expect(lapStatus({ ...base, excluded: true })).toBe("excluded");
+    expect(lapStatus({ ...base, selected: false })).toBe("not-selected");
+  });
+  it("calls a lap on another track what it is, not a problem to review", () => {
+    expect(
+      lapStatus({
+        ...base,
+        sameTrack: false,
+        issues: ["Incompatible start or finish gates"],
+      }),
+    ).toBe("other-track");
+  });
+  it("never lets a lap that does not line up be forced in", () => {
+    const issues = ["Ambiguous GPS alignment"];
+    expect(canInclude(issues)).toBe(false);
+    expect(lapStatus({ ...base, issues, included: true })).toBe("unusable");
+    expect(canInclude(["Marked invalid by RaceChrono"])).toBe(true);
+  });
+  it("explains every flag in plain words", () => {
+    for (const flag of [
+      "Marked invalid by RaceChrono",
+      "Incomplete GPS coverage",
+      "GPS gap longer than 2 seconds",
+      "Interrupted lap: unusually long duration",
+      "Incompatible start or finish gates",
+      "Ambiguous GPS alignment",
+    ])
+      expect(explainIssue(flag).length).toBeGreaterThan(60);
+    expect(Object.keys(STATUS_LABEL)).toHaveLength(7);
+  });
+});
+describe("effect of counting a lap", () => {
+  const lap = (id: string, sectorSeconds: number[]): Trace => {
+    const distance: number[] = [],
+      times: number[] = [];
+    let elapsed = 0;
+    sectorSeconds.forEach((sec, k) => {
+      for (let m = 0; m < 10; m++) {
+        distance.push(k * 100 + m * 10);
+        times.push((elapsed + (sec * m) / 10) * 1000);
+      }
+      elapsed += sec;
+    });
+    distance.push(sectorSeconds.length * 100);
+    times.push(elapsed * 1000);
+    return {
+      id,
+      sessionId: id,
+      label: id,
+      lap: { id, number: 1, start: 0, end: elapsed * 1000, issues: [] },
+      distance: Float64Array.from(distance),
+      times: Float64Array.from(times),
+      lat: new Float64Array(distance.length),
+      lon: new Float64Array(distance.length),
+      channels: {},
+      length: distance[distance.length - 1],
+      issues: [],
+    };
+  };
+  const gates = [0, 100, 200, 300];
+  it("shows the theoretical lap without and with the lap, and the sectors it wins", () => {
+    const pool = [lap("a", [10, 11, 9]), lap("b", [11, 9, 12])];
+    const extra = lap("c", [8, 8, 8]);
+    const r = optimalWith(pool, extra, gates);
+    expect(r.without).toBe(28000);
+    expect(r.with).toBe(24000);
+    expect(r.wins).toBe(3);
+  });
+  it("gives the same answer whether or not the lap is already in the pool", () => {
+    const a = lap("a", [10, 11, 9]),
+      c = lap("c", [9, 9, 9]);
+    expect(optimalWith([a, c], c, gates)).toEqual(optimalWith([a], c, gates));
+  });
+  it("reports a lap that wins nothing", () => {
+    const pool = [lap("a", [8, 8, 8])];
+    expect(optimalWith(pool, lap("slow", [20, 20, 20]), gates).wins).toBe(0);
   });
 });

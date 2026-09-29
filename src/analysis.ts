@@ -360,3 +360,20 @@ export function opportunities(
     };
   });
 }
+
+// What counting one more lap does to the theoretical lap. Nothing is changed.
+export function optimalWith(pool: Trace[], extra: Trace, gates: number[]) {
+  const others = pool.filter((t) => t.id !== extra.id);
+  const total = (laps: Trace[]) => {
+    const sectors = optimal(laps, gates);
+    return sectors.length === gates.length - 1 && sectors.length > 0
+      ? sectors.reduce((n, x) => n + x.time, 0)
+      : NaN;
+  };
+  const withIt = optimal([...others, extra], gates);
+  return {
+    without: total(others),
+    with: total([...others, extra]),
+    wins: withIt.filter((x) => x.source.id === extra.id).length,
+  };
+}

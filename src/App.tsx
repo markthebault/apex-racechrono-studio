@@ -32,6 +32,7 @@ import {
   interpolate,
   blocksOptimal,
   opportunities,
+  optimalWith,
   stepCursor,
   STEP_MS,
   SHIFT_STEP_FACTOR,
@@ -51,6 +52,8 @@ import {
 import { TrackMap } from "./Map";
 import { Opportunities } from "./Opportunities";
 import { SessionSummary } from "./SessionSummary";
+import { LapReview } from "./LapReview";
+import { lapStatus, STATUS_LABEL } from "./lapStatus";
 import { summarize } from "./summary";
 import { classifyFile, describeImport } from "./files";
 import {
@@ -106,6 +109,7 @@ export default function App() {
     [center, setCenter] = useState<[number, number]>(),
     [traces, setTraces] = useState<Trace[]>([]),
     [summaryId, setSummaryId] = useState<string | null>(null),
+    [reviewId, setReviewId] = useState<string | null>(null),
     [oppDay, setOppDay] = useState<string>(),
     [busyA, setBusyA] = useState(false),
     [busyB, setBusyB] = useState(false);
@@ -346,6 +350,25 @@ export default function App() {
     return out;
   }, [sessions, traces, gates, settings.excluded, settings.included]);
   const summarySession = sessions.find((x) => x.id === summaryId);
+  // The lap under review and what counting it would do. Nothing is applied here.
+  const reviewTrace = traces.find((t) => t.id === reviewId);
+  const reviewSession = sessions.find((x) => x.id === reviewTrace?.sessionId);
+  const reviewStatus = reviewTrace
+    ? lapStatus({
+        issues: reviewTrace.issues,
+        sameTrack: reviewSession?.trackId === sa?.trackId,
+        selected: inScope(reviewTrace.sessionId),
+        excluded: settings.excluded.includes(reviewTrace.id),
+        included: settings.included.includes(reviewTrace.id),
+      })
+    : "counts";
+  const reviewEffect =
+    reviewTrace &&
+    reviewStatus !== "other-track" &&
+    reviewStatus !== "unusable" &&
+    gates.length > 1
+      ? optimalWith(eligible, reviewTrace, gates)
+      : undefined;
   useEffect(() => {
     if (a) {
       setRange([0, a.length]);
@@ -1528,9 +1551,17 @@ export default function App() {
                                   {s.laps.map((l) => {
                                     const t = traces.find((t) => t.id === l.id),
                                       issues = t?.issues || l.issues,
-                                      included = eligible.some(
-                                        (t) => t.id === l.id,
-                                      );
+                                      status = lapStatus({
+                                        issues,
+                                        sameTrack: s.trackId === sa?.trackId,
+                                        selected: inScope(s.id),
+                                        excluded: settings.excluded.includes(
+                                          l.id,
+                                        ),
+                                        included: settings.included.includes(
+                                          l.id,
+                                        ),
+                                      });
                                     return (
                                       <tr key={l.id}>
                                         <td>
@@ -1540,56 +1571,29 @@ export default function App() {
                                           {lapTime(l.end - l.start)}
                                         </td>
                                         <td>
-                                          <label>
-                                            <input
-                                              type="checkbox"
-                                              checked={included}
-                                              onChange={(e) =>
-                                                patch(
-                                                  e.target.checked
-                                                    ? {
-                                                        excluded:
-                                                          settings.excluded.filter(
-                                                            (id) => id !== l.id,
-                                                          ),
-                                                        included: [
-                                                          ...settings.included,
-                                                          l.id,
-                                                        ],
-                                                      }
-                                                    : {
-                                                        excluded: [
-                                                          ...settings.excluded,
-                                                          l.id,
-                                                        ],
-                                                        included:
-                                                          settings.included.filter(
-                                                            (id) => id !== l.id,
-                                                          ),
-                                                      },
-                                                )
-                                              }
-                                            />
-                                            {blocksOptimal(issues) ? (
-                                              <span
-                                                className="orange"
-                                                title={issues.join("\n")}
-                                              >
-                                                Review required
-                                              </span>
-                                            ) : (
-                                              "Eligible"
-                                            )}
-                                          </label>
-                                          {issues.length > 0 && (
+                                          <span
+                                            className={`lap-status ${status}`}
+                                          >
+                                            {STATUS_LABEL[status]}
+                                          </span>
+                                          {status === "other-track" ? (
                                             <small>
-                                              {issues.join(" · ")}
-                                              {!blocksOptimal(issues) &&
-                                                " · Only unaffected sectors count"}
+                                              Not part of the current analysis
                                             </small>
+                                          ) : (
+                                            issues.length > 0 && (
+                                              <small>
+                                                {issues.join(" · ")}
+                                              </small>
+                                            )
                                           )}
                                         </td>
-                                        <td>
+                                        <td className="row-actions">
+                                          <button
+                                            onClick={() => setReviewId(l.id)}
+                                          >
+                                            Review
+                                          </button>
                                           <button
                                             onClick={() => {
                                               patch({ a: l.id });
@@ -1906,6 +1910,47 @@ export default function App() {
           </button>
         </footer>
       </main>
+      {reviewTrace && reviewSession && (
+        <LapReview
+          title={`Lap ${String(reviewTrace.lap.number).padStart(2, "0")} · ${lapTime(reviewTrace.lap.end - reviewTrace.lap.start)}`}
+          where={`${reviewSession.track} · ${new Date(reviewSession.start).toLocaleDateString("en-GB")} ${new Date(reviewSession.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+          issues={reviewTrace.issues}
+          status={reviewStatus}
+          trackName={reviewSession.track}
+          currentTrack={sa?.track ?? ""}
+          effect={reviewEffect}
+          onValid={() =>
+            patch({
+              excluded: settings.excluded.filter((id) => id !== reviewTrace.id),
+              included: [
+                ...settings.included.filter((id) => id !== reviewTrace.id),
+                reviewTrace.id,
+              ],
+            })
+          }
+          onExclude={() =>
+            patch({
+              included: settings.included.filter((id) => id !== reviewTrace.id),
+              excluded: [
+                ...settings.excluded.filter((id) => id !== reviewTrace.id),
+                reviewTrace.id,
+              ],
+            })
+          }
+          onAutomatic={() =>
+            patch({
+              included: settings.included.filter((id) => id !== reviewTrace.id),
+              excluded: settings.excluded.filter((id) => id !== reviewTrace.id),
+            })
+          }
+          onOpenTrack={() =>
+            analyzeTrack(
+              sessions.filter((x) => x.trackId === reviewSession.trackId),
+            )
+          }
+          onClose={() => setReviewId(null)}
+        />
+      )}
       {summarySession && (
         <SessionSummary
           session={summarySession}

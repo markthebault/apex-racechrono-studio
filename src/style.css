@@ -1729,3 +1729,117 @@ button.collection-name:focus-visible {
 .car.ghost b {
   opacity: 0.8;
 }
+
+.lap-status {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #ffffff10;
+  color: #cfd8dd;
+}
+.lap-status.counts,
+.lap-status.included {
+  background: #3d8a5533;
+  color: #7bd493;
+}
+.lap-status.review {
+  background: #e0a35b30;
+  color: #f0b46b;
+}
+.lap-status.unusable {
+  background: #d45a5a30;
+  color: #ee8a8a;
+}
+.lap-status.other-track,
+.lap-status.not-selected,
+.lap-status.excluded {
+  color: #8d9aa4;
+}
+.row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.review-card h3 {
+  margin: 20px 0 8px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8d9aa4;
+}
+.review-title {
+  margin: 6px 0 4px;
+  font-size: 24px;
+}
+.review-status {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.review-status.counts,
+.review-status.included {
+  color: #7bd493;
+}
+.review-status.review {
+  color: #f0b46b;
+}
+.review-status.unusable {
+  color: #ee8a8a;
+}
+.review-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.review-issues li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+.review-issues span {
+  color: #a9b6bd;
+  line-height: 1.45;
+}
+.review-effect {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.review-effect div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: #0f1113;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.review-effect span {
+  font-size: 11px;
+  color: #8d9aa4;
+}
+.review-effect strong {
+  font-size: 20px;
+}
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+.review-actions .chosen {
+  background: #3d8a5533;
+  color: #7bd493;
+  border-color: #3d8a55;
+}
+.review-locked {
+  margin: 0;
+  font-size: 13px;
+  color: #ee8a8a;
+  flex-basis: 100%;
+}
