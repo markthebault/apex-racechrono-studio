@@ -1267,6 +1267,9 @@ export default function App() {
                         onBusy={setBusyA}
                         onPause={() => setPlaying(false)}
                         onGoTo={goTo}
+                        lapStart={a?.lap.start}
+                        lapDuration={a ? a.lap.end - a.lap.start : undefined}
+                        onJumpLap={(ms) => a && goTo(a.lap.start + ms)}
                         onUnlink={() =>
                           setSync((s) => ({
                             ...s,
@@ -1281,6 +1284,11 @@ export default function App() {
                         label="LAP B"
                         session={videoSessionB}
                         stamp={videoStampB}
+                        lapStart={
+                          optimalSource
+                            ? optimalSource.source.lap.start
+                            : b?.lap.start
+                        }
                         binding={sync.bindings.find(
                           (b) => b.session.sha256 === videoSessionB?.id,
                         )}

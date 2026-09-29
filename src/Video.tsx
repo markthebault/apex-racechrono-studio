@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Check, Volume2, VolumeX } from "lucide-react";
+import { ClockInput } from "./ClockInput";
+import { lapTime } from "./model";
 import type { Binding, Identity, Session } from "./model";
 import { readCreationTime, matchVideoStart } from "./mp4";
-import { formatWallClock, formatWallDate, parseWallClock } from "./wallclock";
+import {
+  formatClockTenths,
+  formatWallClock,
+  formatWallDate,
+  parseWallClock,
+} from "./wallclock";
 import {
   getHandle,
   saveHandle,
@@ -24,6 +31,9 @@ export function VideoPanel({
   onPause,
   onUnlink,
   onGoTo,
+  lapStart,
+  lapDuration,
+  onJumpLap,
 }: {
   session?: Session;
   stamp: number;
@@ -37,7 +47,13 @@ export function VideoPanel({
   onPause: () => void;
   onUnlink: () => void;
   onGoTo?: (stamp: number) => void;
+  // Start and length of the lap on screen, so the panel can show and set the lap time.
+  lapStart?: number;
+  lapDuration?: number;
+  onJumpLap?: (lapMs: number) => void;
 }) {
+  const flash = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(flash.current), []);
   const video = useRef<HTMLVideoElement>(null),
     input = useRef<HTMLInputElement>(null),
     abort = useRef<AbortController | null>(null);
@@ -47,6 +63,14 @@ export function VideoPanel({
     [selected, setSelected] = useState(0),
     [note, setNote] = useState(""),
     [startText, setStartText] = useState<string | null>(null),
+    // What the last Sync linked, and whether to show the confirmation flash.
+    [confirm, setConfirm] = useState<{
+      what: string;
+      video: number;
+      lap: number;
+      wall: number;
+    } | null>(null),
+    [justSynced, setJustSynced] = useState(false),
     // Lap A carries the sound. Lap B starts muted so two videos do not talk over each other.
     [muted, setMuted] = useState(label !== "LAP A");
   const [seek, setSeek] = useState(0);
@@ -102,6 +126,7 @@ export function VideoPanel({
     setEditing(false);
     setError("");
     setNote("");
+    setConfirm(null);
   }, [session?.id]);
   async function add(list: File[], handles?: any[]) {
     if (!session) return;
@@ -263,10 +288,8 @@ export function VideoPanel({
   }
   function anchor(second = false) {
     if (!binding || !clip || !video.current) return;
-    const a = {
-      videoSeconds: clip.start + video.current.currentTime,
-      sessionTimestamp: stamp,
-    };
+    const seconds = clip.start + video.current.currentTime;
+    const a = { videoSeconds: seconds, sessionTimestamp: stamp };
     const next = {
       ...binding,
       anchors: second ? [binding.anchors[0], a] : [a],
@@ -275,6 +298,16 @@ export function VideoPanel({
       validateSync({ format: "apex-sync", version: 1, bindings: [next] });
       onBinding(next);
       setError("");
+      // Visible proof that the press did something.
+      setConfirm({
+        what: second ? "Drift correction added" : "Synced",
+        video: seconds,
+        lap: lapStart === undefined ? NaN : stamp - lapStart,
+        wall: stamp,
+      });
+      setJustSynced(true);
+      clearTimeout(flash.current);
+      flash.current = setTimeout(() => setJustSynced(false), 2400);
     } catch (e) {
       setError(String(e));
     }
@@ -347,8 +380,16 @@ export function VideoPanel({
         <span>
           {label} <small>{session?.track || "Select a lap"}</small>
         </span>
-        <button disabled={!session} onClick={binding ? reconnect : open}>
-          {binding ? "Relink / add clips" : "Open video"}
+        <button
+          disabled={!session}
+          title={
+            binding
+              ? "Pick the video file again, for example after reloading the page, or add another clip of this session"
+              : "Choose a video of this session"
+          }
+          onClick={binding ? reconnect : open}
+        >
+          {binding ? "Reload video" : "Open video"}
         </button>
       </div>
       <input
@@ -364,6 +405,7 @@ export function VideoPanel({
           ref={video}
           src={url}
           muted={muted}
+          className={justSynced ? "flash" : undefined}
           controls={editing}
           preload="auto"
           onSeeked={() => onBusy(false)}
@@ -416,7 +458,7 @@ export function VideoPanel({
                 setEditing(!editing);
               }}
             >
-              {editing ? "Finish synchronization" : "Edit synchronization"}
+              {editing ? "Done" : "Adjust sync"}
             </button>
             <button
               title="Remove saved video synchronization for this session"
@@ -442,160 +484,245 @@ export function VideoPanel({
               {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}{" "}
               {muted ? "Sound off" : "Sound on"}
             </button>
-            <small>
+            <small className={binding.anchors.length ? "synced" : "unsynced"}>
               {binding.anchors.length === 2
-                ? "Offset + drift correction"
+                ? "Synced, with drift correction"
                 : binding.anchors.length === 1
-                  ? "Offset saved"
-                  : "Not synchronized"}
+                  ? "Synced"
+                  : "Not synced yet"}
             </small>
           </div>
           {editing && (
             <div className="sync-editor">
-              <label>
-                Clip{" "}
-                <select
-                  value={selected}
-                  onChange={(e) => setSelected(+e.target.value)}
-                >
-                  {binding.clips.map((c, i) => (
-                    <option key={c.sha256} value={i}>
-                      {i + 1}. {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="row">
-                <button
-                  onClick={() => {
-                    if (video.current)
-                      video.current.currentTime = Math.max(
-                        0,
-                        video.current.currentTime - 1 / 30,
-                      );
-                  }}
-                >
-                  − 1/30 s
-                </button>
-                <span>{seek.toFixed(3)} s</span>
-                <button
-                  onClick={() => {
-                    if (video.current) video.current.currentTime += 1 / 30;
-                  }}
-                >
-                  + 1/30 s
-                </button>
-              </div>
-              <label>
-                Clip starts at{" "}
-                <input
-                  type="number"
-                  min="0"
-                  step=".001"
-                  value={clip?.start ?? 0}
-                  onChange={(e) => {
-                    const next = {
-                      ...binding,
-                      clips: binding.clips.map((c, i) =>
-                        i === selected ? { ...c, start: +e.target.value } : c,
-                      ),
-                    };
-                    try {
-                      validateSync({
-                        format: "apex-sync",
-                        version: 1,
-                        bindings: [next],
-                      });
-                      onBinding(next);
-                    } catch {
-                      setError("Clip start overlaps another clip.");
-                    }
-                  }}
-                />{" "}
-                s in recording
-              </label>
-              <div className="start-time">
-                <label>
-                  Video started at{" "}
-                  <input
-                    aria-label="Time the video started, local time"
-                    placeholder="14:10:04"
-                    value={
-                      startText ??
-                      (Number.isFinite(videoStart)
-                        ? formatWallClock(videoStart)
-                        : "")
-                    }
-                    onFocus={(e) => e.currentTarget.select()}
-                    onChange={(e) => setStartText(e.target.value)}
-                    onBlur={commitStart}
-                    onKeyDown={(e) => {
-                      e.stopPropagation();
-                      if (e.key === "Enter") commitStart();
-                      if (e.key === "Escape") setStartText(null);
-                    }}
-                  />{" "}
-                  <small>
-                    {session ? formatWallDate(session.start) : ""}, local time
-                  </small>
-                </label>
-                {session && (
-                  <p className="muted">
-                    GPS data {formatWallClock(session.start)} to{" "}
-                    {formatWallClock(session.end)}.{" "}
-                    {Number.isFinite(videoStart)
-                      ? `Video ${formatWallClock(videoStart)} to ${formatWallClock(videoEnd)}. ` +
-                        (overlaps
-                          ? `Both run from ${formatWallClock(overlapStart)} to ${formatWallClock(overlapEnd)}.`
-                          : "They do not overlap, so check the start time.")
-                      : "Type the time the video started, or sync by hand below."}
-                    {binding.anchors.length === 2 &&
-                      " Typing a start time removes the drift correction."}
-                  </p>
+              <div
+                className={`sync-status ${binding.anchors.length ? "ok" : "todo"}`}
+                role="status"
+                aria-live="polite"
+              >
+                {binding.anchors.length ? (
+                  <>
+                    <Check size={15} /> Synced. The video starts at{" "}
+                    {formatWallClock(videoStart)} local time.
+                  </>
+                ) : (
+                  "Not synced yet. Follow the three steps."
                 )}
-                <div className="row">
-                  <button disabled={!overlaps} onClick={goToOverlap}>
-                    Go to where video and GPS overlap
-                  </button>
-                  <button
-                    disabled={!url}
-                    title="Pause on the frame that matches the moment the GPS data begins"
-                    onClick={syncToGpsStart}
-                  >
-                    Link this frame to GPS start
-                  </button>
+              </div>
+              {confirm && (
+                <div
+                  className={`sync-confirm${justSynced ? " pop" : ""}`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Check size={16} />
+                  <span>
+                    <b>{confirm.what}.</b> Video {confirm.video.toFixed(1)} s is
+                    now linked to
+                    {Number.isFinite(confirm.lap)
+                      ? ` lap time ${lapTime(confirm.lap)}`
+                      : ""}{" "}
+                    ({formatClockTenths(confirm.wall)}).
+                  </span>
                 </div>
-              </div>
-              <div className="row">
-                <button
-                  className="sync-button"
-                  disabled={!url}
-                  onClick={() => anchor()}
-                >
-                  Sync here
-                </button>
-                <button
-                  disabled={!url || !binding.anchors.length}
-                  onClick={() => anchor(true)}
-                >
-                  Add drift correction
-                </button>
-              </div>
-              <p className="muted">
-                Sync links the frame you see now to the telemetry moment at the
-                lap clock, {new Date(stamp).toLocaleTimeString("en-GB")}. A
-                second sync further along the video corrects clock drift.
-              </p>
-              <ol className="sync-steps">
+              )}
+              <ol className="sync-flow">
                 <li>
-                  Find a recognizable moment in the video and pause on it.
+                  <h4>
+                    <span>1</span> Pause the video on a moment you can recognise
+                  </h4>
+                  <div className="row">
+                    <button
+                      onClick={() => {
+                        if (video.current)
+                          video.current.currentTime = Math.max(
+                            0,
+                            video.current.currentTime - 1 / 30,
+                          );
+                      }}
+                    >
+                      ◂ Frame
+                    </button>
+                    <b>{seek.toFixed(2)} s</b>
+                    <button
+                      onClick={() => {
+                        if (video.current) video.current.currentTime += 1 / 30;
+                      }}
+                    >
+                      Frame ▸
+                    </button>
+                  </div>
                 </li>
                 <li>
-                  Put the telemetry on the same moment: type a lap time in the
-                  clock, click the map or a chart, or use the arrow keys.
+                  <h4>
+                    <span>2</span> Put the telemetry on the same moment
+                  </h4>
+                  <div className="row">
+                    {onJumpLap && lapStart !== undefined ? (
+                      <label className="lap-jump">
+                        Lap time{" "}
+                        <ClockInput
+                          ms={stamp - lapStart}
+                          max={lapDuration ?? 0}
+                          onJump={onJumpLap}
+                        />
+                      </label>
+                    ) : (
+                      Number.isFinite(stamp - (lapStart ?? NaN)) && (
+                        <span>Lap time {lapTime(stamp - (lapStart ?? 0))}</span>
+                      )
+                    )}
+                    <small>Time of day {formatClockTenths(stamp)}</small>
+                  </div>
+                  <p className="muted">
+                    Type a lap time and press Enter, click the map or a chart,
+                    or use the left and right arrow keys.
+                  </p>
                 </li>
-                <li>Press Sync here.</li>
+                <li>
+                  <h4>
+                    <span>3</span> Link them
+                  </h4>
+                  <button
+                    className={`sync-button big${justSynced ? " done" : ""}`}
+                    disabled={!url}
+                    onClick={() => anchor()}
+                  >
+                    {justSynced ? (
+                      <>
+                        <Check size={18} /> Synced
+                      </>
+                    ) : (
+                      "Sync here"
+                    )}
+                  </button>
+                </li>
               </ol>
+              <details className="sync-more">
+                <summary>Other ways to sync</summary>
+                <div className="start-time">
+                  <p>
+                    <b>You know when the video started.</b> Type it and the rest
+                    follows.
+                  </p>
+                  <label>
+                    Video started at{" "}
+                    <input
+                      aria-label="Time the video started, local time"
+                      placeholder="14:10:04"
+                      value={
+                        startText ??
+                        (Number.isFinite(videoStart)
+                          ? formatWallClock(videoStart)
+                          : "")
+                      }
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => setStartText(e.target.value)}
+                      onBlur={commitStart}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") commitStart();
+                        if (e.key === "Escape") setStartText(null);
+                      }}
+                    />{" "}
+                    <small>
+                      {session ? formatWallDate(session.start) : ""}, local time
+                    </small>
+                  </label>
+                  {session && (
+                    <p className="muted">
+                      GPS data {formatWallClock(session.start)} to{" "}
+                      {formatWallClock(session.end)}.{" "}
+                      {Number.isFinite(videoStart)
+                        ? `Video ${formatWallClock(videoStart)} to ${formatWallClock(videoEnd)}. ` +
+                          (overlaps
+                            ? `Both run from ${formatWallClock(overlapStart)} to ${formatWallClock(overlapEnd)}.`
+                            : "They do not overlap, so check the start time.")
+                        : ""}
+                    </p>
+                  )}
+                  <div className="row">
+                    <button disabled={!overlaps} onClick={goToOverlap}>
+                      Show where video and GPS overlap
+                    </button>
+                  </div>
+                </div>
+                <div className="start-time">
+                  <p>
+                    <b>The video began before the GPS data.</b> Pause on the
+                    frame where the GPS data starts, then link it.
+                  </p>
+                  <div className="row">
+                    <button disabled={!url} onClick={syncToGpsStart}>
+                      Link this frame to GPS start
+                    </button>
+                  </div>
+                </div>
+                <div className="start-time">
+                  <p>
+                    <b>Long video that drifts out of step.</b> After syncing at
+                    the start, sync again on a later moment.
+                  </p>
+                  <div className="row">
+                    <button
+                      disabled={!url || !binding.anchors.length}
+                      onClick={() => anchor(true)}
+                    >
+                      Add drift correction
+                    </button>
+                  </div>
+                </div>
+                {binding.clips.length > 1 && (
+                  <div className="start-time">
+                    <p>
+                      <b>Several clips.</b> Choose the clip on screen and where
+                      it starts in the recording.
+                    </p>
+                    <div className="row">
+                      <select
+                        aria-label="Clip"
+                        value={selected}
+                        onChange={(e) => setSelected(+e.target.value)}
+                      >
+                        {binding.clips.map((c, i) => (
+                          <option key={c.sha256} value={i}>
+                            {i + 1}. {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <label>
+                        Starts at{" "}
+                        <input
+                          type="number"
+                          min="0"
+                          step=".001"
+                          value={clip?.start ?? 0}
+                          onChange={(e) => {
+                            const next = {
+                              ...binding,
+                              clips: binding.clips.map((c, i) =>
+                                i === selected
+                                  ? { ...c, start: +e.target.value }
+                                  : c,
+                              ),
+                            };
+                            try {
+                              validateSync({
+                                format: "apex-sync",
+                                version: 1,
+                                bindings: [next],
+                              });
+                              onBinding(next);
+                            } catch {
+                              setError("Clip start overlaps another clip.");
+                            }
+                          }}
+                        />{" "}
+                        s
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </details>
             </div>
           )}
         </>
