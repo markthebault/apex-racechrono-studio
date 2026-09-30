@@ -39,7 +39,6 @@ export function TrackMap({
   onCursor,
   height,
   onHeight,
-  center,
 }: {
   a?: Trace;
   colors?: [string, string];
@@ -50,7 +49,6 @@ export function TrackMap({
   onCursor: (d: number) => void;
   height: number;
   onHeight: (h: number) => void;
-  center?: [number, number];
 }) {
   const el = useRef<HTMLDivElement>(null),
     map = useRef<L.Map | null>(null),
@@ -104,9 +102,6 @@ export function TrackMap({
       m.remove();
     };
   }, []);
-  useEffect(() => {
-    if (center) map.current?.setView(center, 14, { animate: false });
-  }, [center]);
   useEffect(() => {
     const group = layers.current;
     group?.clearLayers();

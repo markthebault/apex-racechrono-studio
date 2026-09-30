@@ -39,7 +39,7 @@ import { hoverBus } from "./hover";
 import { decodeVbo, trackFromFilename, trackIdFromName } from "./vbo";
 import { crossings, lapsFromLine, lineFromSession, headingAt } from "./laps";
 import { applyLine, resolveVbo, reconcileVbo } from "./vboImport";
-import { assignTrack, knownTracks } from "./tracks";
+import { assignTrack, knownTracks, summarizeTracks } from "./tracks";
 import { fingerprintOf } from "./fingerprint";
 import { readCreationTime, matchVideoStart } from "./mp4";
 import { parseLapTime } from "./model";
@@ -1670,5 +1670,131 @@ describe("choosing a track by hand", () => {
     );
     expect(again.trackId).toBe(8);
     expect(again.laps).toEqual([]);
+  });
+});
+
+describe("track summaries for the Tracks screen", () => {
+  // Reuse the circle from the VBO tests: 300 m radius, one lap in about 47 s.
+  const circle = (id: string, name: string, trackId: number, seconds = 300) => {
+    const K3 = 6371000 * (Math.PI / 180);
+    const rows: string[] = [];
+    for (let i = 0; i < seconds * 10; i++) {
+      const a = (i / 10) * (40 / 300);
+      const lat = 47.8 + (300 * Math.sin(a)) / K3,
+        lon =
+          13.17 +
+          (300 * (Math.cos(a) - 1)) / (K3 * Math.cos(47.8 * (Math.PI / 180)));
+      const tod = 12 * 3600 + i / 10;
+      const hms = `${String(Math.floor(tod / 3600)).padStart(2, "0")}${String(Math.floor((tod % 3600) / 60)).padStart(2, "0")}${(tod % 60).toFixed(3).padStart(6, "0")}`;
+      rows.push(
+        `010 ${hms} ${(lat * 60).toFixed(6)} ${(-lon * 60).toFixed(6)} 144.000 0.00 500.00`,
+      );
+    }
+    const bytes = new TextEncoder().encode(
+      [
+        "File created on 27/09/2026 @ 12:00",
+        "[header]",
+        "satellites",
+        "time",
+        "latitude",
+        "longitude",
+        "velocity kmh",
+        "heading",
+        "height",
+        "",
+        "[comments]",
+        "UTC Date Started: 27/09/2026 12:00",
+        "[column names]",
+        "sats time lat long velocity heading height",
+        "[data]",
+        ...rows,
+      ].join("\n"),
+    );
+    return { ...decodeVbo(bytes, `x_${name}.vbo`, id), track: name, trackId };
+  };
+  it("counts sessions and laps, finds the fastest lap and measures the track", () => {
+    const v = circle("v", "Ring", 5);
+    const start = {
+      lat: 47.8,
+      lon: 13.17,
+      heading: headingAt(v.lat, v.lon, 0),
+      source: "user" as const,
+    };
+    const cut = applyLine(v, start);
+    const [t] = summarizeTracks([
+      cut,
+      {
+        ...cut,
+        id: "w",
+        laps: cut.laps.slice(0, 2).map((l) => ({ ...l, id: "w" + l.number })),
+      },
+    ]);
+    expect(t.name).toBe("Ring");
+    expect(t.sessions).toHaveLength(2);
+    expect(t.laps).toBe(cut.laps.length + 2);
+    expect(t.best!.ms).toBeCloseTo(47124, -2);
+    expect(t.lengthM).toBeGreaterThan(1850);
+    expect(t.lengthM).toBeLessThan(1920);
+    expect(t.outline.length).toBeGreaterThan(50);
+    expect(t.outline.length).toBeLessThanOrEqual(601);
+    expect(t.others).toHaveLength(1);
+  });
+  it("names where the start/finish line comes from", () => {
+    const v = circle("v", "Ring", 5);
+    const start = {
+      lat: 47.8,
+      lon: 13.17,
+      heading: headingAt(v.lat, v.lon, 0),
+      source: "user" as const,
+    };
+    const placed = applyLine(v, start);
+    expect(summarizeTracks([placed])[0].lineFrom).toBe("you");
+    const fromDevice = { ...placed, line: undefined };
+    expect(summarizeTracks([fromDevice])[0].lineFrom).toBe("laps");
+    const oneLap = { ...fromDevice, laps: fromDevice.laps.slice(0, 1) };
+    const s = summarizeTracks([oneLap])[0];
+    expect(s.lineFrom).toBe("lap start");
+    expect(s.line).not.toBeNull();
+    expect(
+      summarizeTracks([applyLine(v, { ...start, source: "session" })])[0]
+        .lineFrom,
+    ).toBe("session");
+  });
+  it("still shows the trace of a session that has no laps yet, without a line", () => {
+    const [t] = summarizeTracks([circle("v", "Ring", 5)]);
+    expect(t.best).toBeUndefined();
+    expect(t.line).toBeNull();
+    expect(t.lineFrom).toBe("none");
+    expect(t.outline.length).toBeGreaterThan(100);
+    expect(t.lengthM).toBeGreaterThan(4000);
+  });
+  it("skips red-flag laps when choosing the fastest, and lists the busiest track first", () => {
+    const v = circle("v", "Ring", 5);
+    const start = {
+      lat: 47.8,
+      lon: 13.17,
+      heading: headingAt(v.lat, v.lon, 0),
+      source: "user" as const,
+    };
+    const cut = applyLine(v, start);
+    const flagged = {
+      ...cut,
+      laps: cut.laps.map((l, i) =>
+        i === 0
+          ? {
+              ...l,
+              end: l.start + 1000,
+              issues: ["Interrupted lap: unusually long duration"],
+            }
+          : l,
+      ),
+    };
+    expect(summarizeTracks([flagged])[0].best!.ms).toBeGreaterThan(40000);
+    const two = summarizeTracks([
+      circle("a", "Small", 1),
+      circle("b", "Big", 2),
+      circle("c", "Big", 2),
+    ]);
+    expect(two.map((x) => x.name)).toEqual(["Big", "Small"]);
   });
 });

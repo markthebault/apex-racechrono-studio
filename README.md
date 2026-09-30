@@ -53,7 +53,11 @@ The format uses `format: "apex-sync"`, `version: 1`, and `bindings[]`. Each bind
 
 ## Data and track catalog
 
-The included snapshot contains 6,643 named mapped raceways from OpenStreetMap. It is global but not exhaustive, and can include kart tracks and individual circuit sections. Search results are venue locations, not certified timing layouts. GPS imports supply the timed reference. Regenerate with:
+## Tracks
+
+The Tracks tab lists **your tracks**, one for each track your sessions belong to, with sessions, laps, best lap and length. Select one and the map shows its fastest lap as a bold trace, the fastest lap of each other session as a faint one, the sector gates when it is the track being analyzed, and the **start/finish line** as a checkered bar with its label and an arrow for the direction of travel. The bar keeps its size on screen, so it stays visible when the whole circuit is in view. A line note says where the line comes from: placed by you, taken from another session, where the laps begin in the recordings, or the start of the fastest lap when nothing else confirms it. A session that has no laps yet still shows its path, without a line. From here you can analyze the track, edit its layout, and place or move the start/finish line of a VBO session.
+
+**Find a circuit in the catalog** is a secondary search that pins a venue on the map and does not disturb your own track; **Back to my track** returns. The included snapshot contains 6,643 named mapped raceways from OpenStreetMap. It is global but not exhaustive, and can include kart tracks and individual circuit sections. Search results are venue locations, not certified timing layouts. GPS imports supply the timed reference. Regenerate the snapshot with:
 
 ```sh
 npm run catalog

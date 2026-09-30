@@ -61,7 +61,8 @@ import { classifyFile, describeImport } from "./files";
 import { applyLine, reconcileVbo, resolveVbo } from "./vboImport";
 import { LineEditor } from "./LineEditor";
 import { TrackChooser } from "./TrackChooser";
-import { assignTrack, knownTracks } from "./tracks";
+import { assignTrack, knownTracks, summarizeTracks } from "./tracks";
+import { TracksMap } from "./TracksMap";
 import {
   groupSessions,
   isSelected,
@@ -112,7 +113,12 @@ export default function App() {
       { id: string; name: string; lat: number; lon: number }[]
     >([]),
     [search, setSearch] = useState(""),
-    [center, setCenter] = useState<[number, number]>(),
+    [venue, setVenue] = useState<{
+      name: string;
+      lat: number;
+      lon: number;
+    } | null>(null),
+    [trackView, setTrackView] = useState<number | null>(null),
     [traces, setTraces] = useState<Trace[]>([]),
     [summaryId, setSummaryId] = useState<string | null>(null),
     [reviewId, setReviewId] = useState<string | null>(null),
@@ -796,6 +802,19 @@ export default function App() {
       layouts: [...settings.layouts.filter((x) => x.referenceId !== ref.id), l],
     });
   }
+  // The Tracks screen: every track in use with its trace and start/finish line.
+  const summaries = useMemo(() => summarizeTracks(sessions), [sessions]);
+  const shown =
+    summaries.find((t) => t.trackId === (trackView ?? sa?.trackId)) ??
+    summaries[0];
+  const shownGates =
+    a && shown && sa?.trackId === shown.trackId
+      ? gates.slice(1, -1).map((d, i) => ({
+          lat: interpolate(a.distance, a.lat, d),
+          lon: interpolate(a.distance, a.lon, d),
+          label: String(i + 1),
+        }))
+      : [];
   const groupBy = settings.group === "date" ? "date" : "track",
     groups = useMemo(
       () => groupSessions(sessions, groupBy),
@@ -1995,76 +2014,177 @@ export default function App() {
               )}
               {tab === "Tracks" && (
                 <>
-                  <div className="track-search">
-                    <MapPin size={20} />
-                    <input
-                      aria-label="Search tracks"
-                      placeholder="Search the global track catalog…"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <span>{catalog.length.toLocaleString()} mapped tracks</span>
-                  </div>
                   <div className="tracks-layout">
                     <section className="track-results">
-                      {catalog
-                        .filter((t) =>
-                          t.name.toLowerCase().includes(search.toLowerCase()),
-                        )
-                        .slice(0, 70)
-                        .map((t) => (
-                          <button
-                            key={t.id}
-                            onClick={() => setCenter([t.lat, t.lon])}
-                          >
-                            <MapPin size={16} />
-                            <span>
-                              {t.name}
-                              <small>
-                                {t.lat.toFixed(3)}°, {t.lon.toFixed(3)}°
-                              </small>
-                            </span>
-                            <ChevronRight size={15} />
-                          </button>
-                        ))}
-                      {!catalog.length && (
-                        <p>
-                          Catalog unavailable. Import a session to create a
-                          layout from its GPS recording.
+                      <h2 className="side-title">Your tracks</h2>
+                      {summaries.length === 0 && (
+                        <p className="muted">
+                          Import a session and its track appears here with its
+                          trace and start/finish line.
                         </p>
                       )}
-                    </section>
-                    <div>
-                      <TrackMap
-                        a={a}
-                        cursor={cursor}
-                        range={range}
-                        gates={gates}
-                        onCursor={moveCursor}
-                        height={450}
-                        onHeight={() => {}}
-                        center={center}
-                      />
-                      <section className="panel">
-                        <h2>Your timed layout</h2>
-                        <p>
-                          {sa?.track || "Import a session to define a layout."}
-                        </p>
+                      {summaries.map((t) => (
                         <button
-                          disabled={!ref}
+                          key={t.trackId}
+                          className={`my-track${t.trackId === shown?.trackId && !venue ? " on" : ""}`}
                           onClick={() => {
-                            saveGates(gates);
-                            setTab("Optimal lap");
+                            setVenue(null);
+                            setTrackView(t.trackId);
                           }}
                         >
-                          Create / edit layout from GPS
+                          <MapPin size={16} />
+                          <span>
+                            {t.name}
+                            <small>
+                              {t.sessions.length}{" "}
+                              {t.sessions.length === 1 ? "session" : "sessions"}{" "}
+                              · {t.laps} laps
+                              {t.best && ` · best ${lapTime(t.best.ms)}`}
+                            </small>
+                          </span>
+                          <ChevronRight size={15} />
                         </button>
-                        <p className="muted">
-                          Imported lap boundaries define start and finish.
-                          Sector gates are editable by distance along the GPS
-                          reference.
+                      ))}
+                      <details className="catalog">
+                        <summary>Find a circuit in the catalog</summary>
+                        <div className="track-search">
+                          <input
+                            aria-label="Search tracks"
+                            placeholder="Search 6,643 mapped tracks…"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                          />
+                        </div>
+                        {search.trim() &&
+                          catalog
+                            .filter((t) =>
+                              t.name
+                                .toLowerCase()
+                                .includes(search.toLowerCase()),
+                            )
+                            .slice(0, 30)
+                            .map((t) => (
+                              <button
+                                key={t.id}
+                                onClick={() =>
+                                  setVenue({
+                                    name: t.name,
+                                    lat: t.lat,
+                                    lon: t.lon,
+                                  })
+                                }
+                              >
+                                <MapPin size={16} />
+                                <span>
+                                  {t.name}
+                                  <small>
+                                    {t.lat.toFixed(3)}°, {t.lon.toFixed(3)}°
+                                  </small>
+                                </span>
+                                <ChevronRight size={15} />
+                              </button>
+                            ))}
+                        {!catalog.length && (
+                          <p className="muted">Catalog unavailable.</p>
+                        )}
+                      </details>
+                    </section>
+                    <div>
+                      <TracksMap
+                        track={shown}
+                        gates={shownGates}
+                        venue={venue}
+                        height={480}
+                      />
+                      {venue && (
+                        <p className="notice">
+                          Showing {venue.name} from the catalog. Venue positions
+                          do not define timing.{" "}
+                          <button onClick={() => setVenue(null)}>
+                            Back to my track
+                          </button>
                         </p>
-                      </section>
+                      )}
+                      {shown && (
+                        <section className="panel track-detail">
+                          <h2>{shown.name}</h2>
+                          <div className="track-stats">
+                            <div>
+                              <strong>{shown.sessions.length}</strong>
+                              <span>sessions</span>
+                            </div>
+                            <div>
+                              <strong>{shown.laps}</strong>
+                              <span>laps</span>
+                            </div>
+                            <div>
+                              <strong>
+                                {shown.best ? lapTime(shown.best.ms) : "-"}
+                              </strong>
+                              <span>
+                                best lap
+                                {shown.best &&
+                                  `, lap ${shown.best.lapNumber} of ${new Date(shown.best.session.start).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`}
+                              </span>
+                            </div>
+                            <div>
+                              <strong>
+                                {(shown.lengthM / 1000).toFixed(2)} km
+                              </strong>
+                              <span>
+                                {shown.best ? "lap length" : "path length"}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="muted">
+                            {
+                              {
+                                you: "Start/finish line placed by you.",
+                                session:
+                                  "Start/finish line taken from another session of this track.",
+                                laps: "Start/finish line where the laps begin in the recordings.",
+                                "lap start":
+                                  "Start/finish line at the start of the fastest lap. No other session confirms it.",
+                                none: "No laps yet, so no start/finish line. Place one to cut the laps.",
+                              }[shown.lineFrom]
+                            }
+                          </p>
+                          <div className="review-actions">
+                            <button
+                              className="sync-button"
+                              onClick={() => analyzeTrack(shown.sessions)}
+                            >
+                              Analyze this track
+                            </button>
+                            {shown.trackId === sa?.trackId && (
+                              <button
+                                disabled={!ref}
+                                onClick={() => {
+                                  saveGates(gates);
+                                  setTab("Optimal lap");
+                                }}
+                              >
+                                Create / edit layout from GPS
+                              </button>
+                            )}
+                            {shown.sessions.some((x) => x.format === "vbo") && (
+                              <button
+                                onClick={() =>
+                                  setLineFor(
+                                    shown.sessions.find(
+                                      (x) => x.format === "vbo",
+                                    )!.id,
+                                  )
+                                }
+                              >
+                                {shown.lineFrom === "none"
+                                  ? "Set start/finish line"
+                                  : "Move start/finish line"}
+                              </button>
+                            )}
+                          </div>
+                        </section>
+                      )}
                     </div>
                   </div>
                   <p className="footnote">

@@ -141,3 +141,18 @@ export function distanceToPath(
   }
   return best;
 }
+
+// A finish line at the point where a given lap begins, for a track whose laps come from
+// the device and so has no stored line.
+export function lineAtStart(s: Session, lap: Lap): FinishLine {
+  const i = Math.min(
+    s.times.length - 1,
+    Math.max(0, lower(s.times, lap.start)),
+  );
+  return {
+    lat: s.lat[i],
+    lon: s.lon[i],
+    heading: headingAt(s.lat, s.lon, i),
+    source: "session",
+  };
+}
