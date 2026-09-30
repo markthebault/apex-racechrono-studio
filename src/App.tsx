@@ -1324,6 +1324,7 @@ export default function App() {
                     onCursor={moveCursor}
                     height={settings.mapHeight}
                     onHeight={(mapHeight) => patch({ mapHeight })}
+                    speedUnit={settings.speedUnit}
                   />
                   <div className="transport">
                     <button

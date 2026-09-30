@@ -435,6 +435,79 @@ h2 {
   color: #899ba6;
   letter-spacing: 0;
 }
+.map-tools {
+  position: absolute;
+  top: 66px;
+  left: 16px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+}
+.map-tools button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  color: #d5e2e7;
+  background: #121c22e8;
+  border: 1px solid #3e4c53;
+  border-radius: 5px;
+  font: inherit;
+  cursor: pointer;
+}
+.map-tools button[aria-pressed="true"] {
+  border-color: #63e5d2;
+  color: #fff;
+}
+.map-tools button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.map-tools button i {
+  width: 16px;
+  height: 6px;
+  border-radius: 2px;
+}
+.map-tools button i.brake {
+  background: linear-gradient(90deg, hsl(0 90% 78%), hsl(0 90% 28%));
+}
+.map-tools button i.speed {
+  background: linear-gradient(90deg, #f02a2a, #f0d02a, #2af06a, #2a5af0);
+}
+.scale {
+  padding: 7px 10px;
+  background: #121c22e8;
+  border: 1px solid #3e4c53;
+  border-radius: 5px;
+  color: #d5e2e7;
+  font-size: 10px;
+}
+.scale div {
+  width: 170px;
+  height: 8px;
+  margin-bottom: 5px;
+  border-radius: 2px;
+}
+.scale .speed-ramp {
+  background: linear-gradient(
+    90deg,
+    hsl(0 90% 55%),
+    hsl(60 90% 55%),
+    hsl(120 90% 55%),
+    hsl(180 90% 55%),
+    hsl(240 90% 55%)
+  );
+}
+.scale .brake-ramp {
+  background: linear-gradient(90deg, hsl(0 90% 78%), hsl(0 90% 28%));
+}
+.scale span {
+  display: block;
+  max-width: 170px;
+}
 .map-resize {
   position: absolute;
   bottom: 9px;

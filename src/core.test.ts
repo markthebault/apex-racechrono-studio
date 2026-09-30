@@ -12,6 +12,11 @@ import {
   interpolate,
   blocksOptimal,
   isBraking,
+  brakingRuns,
+  speedColor,
+  brakeColor,
+  brakeSignal,
+  smoothedBrake,
   bearing,
   elapsedDelta,
   nearestOnTrace,
@@ -433,6 +438,112 @@ describe("braking and heading", () => {
     expect(isBraking(x, 300)).toBe(false);
     expect(isBraking(x, 400)).toBe(false);
     expect(isBraking({ ...x, channels: {} }, 100)).toBe(false);
+  });
+  it("finds braking zones, closing short gaps and dropping specks", () => {
+    // Samples every 5 m, 0.5 s apart.
+    const dense = (accel: number[], times?: number[]): Trace => ({
+      ...t(accel),
+      distance: Float64Array.from(accel, (_, i) => i * 5),
+      times: Float64Array.from(times ?? accel.map((_, i) => i * 500)),
+      lat: Float64Array.from(accel, () => 50),
+      lon: Float64Array.from(accel, () => 7),
+    });
+    const B = -0.5;
+    // 3 samples (10 m) of braking, a 10 m gap, 4 more samples, then a lone sample.
+    const x = dense([0, B, B, B, 0, 0, B, B, B, B, 0, 0, 0, 0, 0, B, 0]);
+    expect(brakingRuns(x)).toEqual([[1, 9]]);
+    expect(brakingRuns(x, 8, 5)).toEqual([
+      [1, 3],
+      [6, 9],
+    ]);
+    expect(brakingRuns({ ...x, channels: {} })).toEqual([]);
+    // No zone is joined across a GPS outage.
+    const gap = dense(
+      [B, B, B, 0, B, B, B],
+      [0, 500, 1000, 1500, 6000, 6500, 7000],
+    );
+    expect(brakingRuns(gap)).toEqual([
+      [0, 2],
+      [4, 6],
+    ]);
+  });
+  it("colours braking light red when weak and dark red when hard", () => {
+    expect(brakeColor(0)).toBe("hsl(0 90% 78%)");
+    expect(brakeColor(1)).toBe("hsl(0 90% 28%)");
+    expect(brakeColor(0.5)).toBe("hsl(0 90% 53%)");
+    expect(brakeColor(2)).toBe(brakeColor(1));
+    expect(brakeColor(-1)).toBe(brakeColor(0));
+    expect(brakeColor(NaN)).toBe(brakeColor(0));
+  });
+  it("smooths braking strength along a run", () => {
+    // -0.7 g is half way between the threshold and BRAKE_HARD, -1.2 g full strength.
+    const x = t([-0.7, -1.2, BRAKE_G, -1.2, -0.7]);
+    const g = smoothedBrake(x, 0, 4, 1);
+    expect(g[0]).toBeCloseTo(0.75, 6);
+    expect(g[1]).toBeCloseTo(0.5, 6);
+    expect(g[2]).toBeCloseTo(2 / 3, 6);
+    // Gaps are skipped, and a window with no data gives NaN.
+    const y = t([-0.7, NaN, -1.2, NaN, NaN]);
+    expect(smoothedBrake(y, 0, 4, 1)[1]).toBeCloseTo(0.75, 6);
+    expect(smoothedBrake(y, 3, 4, 1)[1]).toBeNaN();
+  });
+  describe("calculated braking ignores lifting off, recorded brake data wins", () => {
+    // Samples every 5 m, 0.5 s apart, with a stretch at -0.5 g in the middle.
+    const B = -0.5;
+    const accel = [0, 0, B, B, B, B, B, B, 0, 0];
+    const lap = (speed: number[], extra: Record<string, number[]> = {}) => ({
+      ...t(accel),
+      distance: Float64Array.from(accel, (_, i) => i * 5),
+      times: Float64Array.from(accel, (_, i) => i * 500),
+      lat: Float64Array.from(accel, () => 50),
+      lon: Float64Array.from(accel, () => 7),
+      channels: {
+        acceleration: Float64Array.from(accel),
+        speed: Float64Array.from(speed),
+        ...Object.fromEntries(
+          Object.entries(extra).map(([k, v]) => [k, Float64Array.from(v)]),
+        ),
+      },
+    });
+    const braking = lap([160, 160, 160, 158, 156, 154, 152, 152, 152, 152]);
+    const lifting = lap([160, 160, 160, 150, 140, 130, 120, 118, 118, 118]);
+    it("keeps a zone that sheds enough speed", () => {
+      expect(brakingRuns(lifting)).toEqual([[2, 7]]);
+      expect(isBraking(lifting, 25)).toBe(true);
+    });
+    it("drops a zone where the car only slows a little, as when lifting off", () => {
+      expect(brakingRuns(braking)).toEqual([]);
+      expect(isBraking(braking, 25)).toBe(false);
+      expect(brakeSignal(braking).recorded).toBe(false);
+    });
+    it("uses a brake channel instead when the file has one", () => {
+      const pedal = [0, 0, 0, 5, 40, 100, 100, 30, 0, 0];
+      const x = lap([160, 160, 160, 158, 156, 154, 152, 152, 152, 152], {
+        "Raw column brake_pressure": pedal,
+      });
+      const signal = brakeSignal(x);
+      expect(signal.recorded).toBe(true);
+      // On above 10% of the highest value: samples 4 to 7.
+      expect(Array.from(signal.on)).toEqual([0, 0, 0, 0, 1, 1, 1, 1, 0, 0]);
+      expect(brakingRuns(x)).toEqual([[4, 7]]);
+      expect(signal.strength[5]).toBe(1);
+      expect(signal.strength[4]).toBeCloseTo(0.4, 6);
+      expect(isBraking(x, 20)).toBe(true);
+      expect(isBraking(x, 10)).toBe(false);
+    });
+    it("has nothing to show without a brake channel or speed", () => {
+      const x = { ...braking, channels: {} };
+      expect(brakingRuns(x)).toEqual([]);
+      expect(brakeSignal(x).recorded).toBe(false);
+    });
+  });
+  it("colours speed red when slow through to blue when fast", () => {
+    expect(speedColor(40)).toBe("hsl(0 90% 55%)");
+    expect(speedColor(300)).toBe("hsl(240 90% 55%)");
+    expect(speedColor(-5)).toBe(speedColor(40));
+    expect(speedColor(400)).toBe(speedColor(300));
+    expect(speedColor(170)).toBe("hsl(120 90% 55%)");
+    expect(speedColor(NaN)).toBe("#8a9aa3");
   });
   it("points north, then east", () => {
     const x = t([0, 0, 0, 0, 0]);
