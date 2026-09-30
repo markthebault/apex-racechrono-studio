@@ -145,14 +145,36 @@ export function distanceToPath(
 // A finish line at the point where a given lap begins, for a track whose laps come from
 // the device and so has no stored line.
 export function lineAtStart(s: Session, lap: Lap): FinishLine {
-  const i = Math.min(
-    s.times.length - 1,
-    Math.max(0, lower(s.times, lap.start)),
-  );
+  return lineAtTime(s, lap.start);
+}
+
+// The line where a lap ends. It is the same place as the start on a circuit, and a
+// different one on a track timed from a start line to a separate finish line.
+export function lineAtEnd(s: Session, lap: Lap): FinishLine {
+  return lineAtTime(s, lap.end, true);
+}
+
+// The direction is that of the path just after a start and just before an end, so the
+// untimed drive before a start or after an end on a start-to-finish track cannot turn it.
+function lineAtTime(s: Session, t: number, ending = false): FinishLine {
+  const i = Math.min(s.times.length - 1, Math.max(0, lower(s.times, t)));
+  const step = ending ? -1 : 1;
+  let j = i;
+  const away = (k: number) => {
+    const [x, y] = local(s.lat[k], s.lon[k], s.lat[i], s.lon[i]);
+    return Math.hypot(x, y);
+  };
+  while (j + step >= 0 && j + step < s.lat.length && away(j) < 10) j += step;
+  const [x, y] = ending
+    ? local(s.lat[i], s.lon[i], s.lat[j], s.lon[j])
+    : local(s.lat[j], s.lon[j], s.lat[i], s.lon[i]);
   return {
     lat: s.lat[i],
     lon: s.lon[i],
-    heading: headingAt(s.lat, s.lon, i),
+    heading:
+      j === i
+        ? headingAt(s.lat, s.lon, i)
+        : (Math.atan2(x, y) / rad + 360) % 360,
     source: "session",
   };
 }

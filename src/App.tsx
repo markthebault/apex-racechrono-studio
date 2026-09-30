@@ -62,7 +62,10 @@ import { applyLine, reconcileVbo, resolveVbo } from "./vboImport";
 import { LineEditor } from "./LineEditor";
 import { TrackChooser } from "./TrackChooser";
 import { assignTrack, knownTracks, summarizeTracks } from "./tracks";
+import type { TrackSummary } from "./tracks";
 import { TracksMap } from "./TracksMap";
+import { decodeVenue, layoutSourceText, searchVenues, venueOf } from "./venues";
+import type { Venue, VenueGeometry, VenueShape } from "./venues";
 import {
   groupSessions,
   isSelected,
@@ -109,15 +112,14 @@ export default function App() {
     [playing, setPlaying] = useState(false),
     [files, setFiles] = useState<Record<string, string>>({}),
     [showVideos, setShowVideos] = useState(false),
-    [catalog, setCatalog] = useState<
-      { id: string; name: string; lat: number; lon: number }[]
-    >([]),
+    [catalog, setCatalog] = useState<Venue[]>([]),
+    [catalogFailed, setCatalogFailed] = useState(false),
     [search, setSearch] = useState(""),
-    [venue, setVenue] = useState<{
-      name: string;
-      lat: number;
-      lon: number;
-    } | null>(null),
+    // The Tracks screen: a catalog venue picked by search (else the venue of the track in
+    // view), and an OpenStreetMap layout of it (null shows your recorded track instead).
+    [venueId, setVenueId] = useState<string | null>(null),
+    [osmLayout, setOsmLayout] = useState<number | null>(null),
+    [shapes, setShapes] = useState<Record<string, VenueShape | null>>({}),
     [trackView, setTrackView] = useState<number | null>(null),
     [traces, setTraces] = useState<Trace[]>([]),
     [summaryId, setSummaryId] = useState<string | null>(null),
@@ -151,8 +153,8 @@ export default function App() {
       .catch(report);
     fetch("/tracks.json")
       .then((r) => r.json())
-      .then((d) => setCatalog(d.tracks))
-      .catch(() => {});
+      .then((d) => setCatalog(d.venues))
+      .catch(() => setCatalogFailed(true));
   }, []);
   useEffect(() => {
     if (!ready) return;
@@ -807,6 +809,54 @@ export default function App() {
   const shown =
     summaries.find((t) => t.trackId === (trackView ?? sa?.trackId)) ??
     summaries[0];
+  const venueByTrack = useMemo(
+    () => new Map(summaries.map((t) => [t.trackId, venueOf(t, catalog)])),
+    [summaries, catalog],
+  );
+  const venue =
+    (venueId
+      ? catalog.find((v) => v.id === venueId)
+      : shown && venueByTrack.get(shown.trackId)) ?? null;
+  // Your tracks grouped by venue, so the layouts of one circuit sit together.
+  const trackGroups = useMemo(() => {
+    const out: { venue: Venue | null; tracks: TrackSummary[] }[] = [];
+    for (const t of summaries) {
+      const v = venueByTrack.get(t.trackId) ?? null;
+      const group = v && out.find((g) => g.venue?.id === v.id);
+      if (group) group.tracks.push(t);
+      else out.push({ venue: v, tracks: [t] });
+    }
+    return out;
+  }, [summaries, venueByTrack]);
+  const mineHere = venue
+    ? summaries.filter((t) => venueByTrack.get(t.trackId)?.id === venue.id)
+    : shown
+      ? [shown]
+      : [];
+  const showMine =
+    osmLayout === null && shown && (!venue || mineHere.includes(shown))
+      ? shown
+      : null;
+  const shape = venue ? shapes[venue.id] : null;
+  useEffect(() => {
+    if (!venue || venue.id in shapes) return;
+    fetch(`/venues/${venue.cell}.json`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((cell: Record<string, VenueGeometry>) =>
+        setShapes((m) => {
+          const next = { ...m };
+          for (const [id, g] of Object.entries(cell))
+            if (!(id in next)) next[id] = decodeVenue(g);
+          return next;
+        }),
+      )
+      .catch(() => setShapes((m) => ({ ...m, [venue.id]: null })));
+  }, [venue, shapes]);
+  const openTrack = (t: TrackSummary) => {
+    setVenueId(null);
+    setOsmLayout(null);
+    setTrackView(t.trackId);
+  };
   const shownGates =
     a && shown && sa?.trackId === shown.trackId
       ? gates.slice(1, -1).map((d, i) => ({
@@ -2023,116 +2073,228 @@ export default function App() {
                           trace and start/finish line.
                         </p>
                       )}
-                      {summaries.map((t) => (
-                        <button
-                          key={t.trackId}
-                          className={`my-track${t.trackId === shown?.trackId && !venue ? " on" : ""}`}
-                          onClick={() => {
-                            setVenue(null);
-                            setTrackView(t.trackId);
-                          }}
+                      {trackGroups.map((g) => (
+                        <div
+                          key={g.venue?.id ?? `t${g.tracks[0].trackId}`}
+                          className="venue-group"
                         >
-                          <MapPin size={16} />
-                          <span>
-                            {t.name}
-                            <small>
-                              {t.sessions.length}{" "}
-                              {t.sessions.length === 1 ? "session" : "sessions"}{" "}
-                              · {t.laps} laps
-                              {t.best && ` · best ${lapTime(t.best.ms)}`}
-                            </small>
-                          </span>
-                          <ChevronRight size={15} />
-                        </button>
+                          {g.venue && (
+                            <button
+                              className={`venue-head${venue?.id === g.venue.id && osmLayout !== null ? " on" : ""}`}
+                              onClick={() => {
+                                setVenueId(g.venue!.id);
+                                setTrackView(g.tracks[0].trackId);
+                                setOsmLayout(null);
+                              }}
+                            >
+                              <MapPin size={15} />
+                              <span>
+                                {g.venue.name}
+                                <small>
+                                  {g.venue.layouts.length
+                                    ? `${g.venue.layouts.length} mapped ${g.venue.layouts.length === 1 ? "layout" : "layouts"}`
+                                    : "Mapped pieces only"}
+                                </small>
+                              </span>
+                            </button>
+                          )}
+                          {g.tracks.map((t) => (
+                            <button
+                              key={t.trackId}
+                              className={`my-track${g.venue ? " nested" : ""}${t.trackId === showMine?.trackId ? " on" : ""}`}
+                              onClick={() => openTrack(t)}
+                            >
+                              {!g.venue && <MapPin size={16} />}
+                              <span>
+                                {t.name}
+                                <small>
+                                  {t.sessions.length}{" "}
+                                  {t.sessions.length === 1
+                                    ? "session"
+                                    : "sessions"}{" "}
+                                  · {t.laps} laps
+                                  {t.best && ` · best ${lapTime(t.best.ms)}`}
+                                </small>
+                              </span>
+                              <ChevronRight size={15} />
+                            </button>
+                          ))}
+                        </div>
                       ))}
                       <details className="catalog">
                         <summary>Find a circuit in the catalog</summary>
                         <div className="track-search">
                           <input
                             aria-label="Search tracks"
-                            placeholder="Search 6,643 mapped tracks…"
+                            placeholder={`Search ${catalog.length.toLocaleString("en-GB")} mapped circuits…`}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                           />
                         </div>
-                        {search.trim() &&
-                          catalog
-                            .filter((t) =>
-                              t.name
-                                .toLowerCase()
-                                .includes(search.toLowerCase()),
-                            )
-                            .slice(0, 30)
-                            .map((t) => (
-                              <button
-                                key={t.id}
-                                onClick={() =>
-                                  setVenue({
-                                    name: t.name,
-                                    lat: t.lat,
-                                    lon: t.lon,
-                                  })
-                                }
-                              >
-                                <MapPin size={16} />
-                                <span>
-                                  {t.name}
-                                  <small>
-                                    {t.lat.toFixed(3)}°, {t.lon.toFixed(3)}°
-                                  </small>
-                                </span>
-                                <ChevronRight size={15} />
-                              </button>
-                            ))}
-                        {!catalog.length && (
+                        {searchVenues(catalog, search).map(
+                          ({ venue: v, via }) => (
+                            <button
+                              key={v.id}
+                              className={
+                                venue?.id === v.id && venueId ? "on" : ""
+                              }
+                              onClick={() => {
+                                setVenueId(v.id);
+                                setOsmLayout(v.layouts.length ? 0 : null);
+                              }}
+                            >
+                              <MapPin size={16} />
+                              <span>
+                                {v.name}
+                                <small>
+                                  {v.layouts.length
+                                    ? `${v.layouts.length} ${v.layouts.length === 1 ? "layout" : "layouts"}`
+                                    : "Mapped pieces only"}
+                                  {via && ` · ${via}`}
+                                </small>
+                              </span>
+                              <ChevronRight size={15} />
+                            </button>
+                          ),
+                        )}
+                        {catalogFailed && (
                           <p className="muted">Catalog unavailable.</p>
                         )}
                       </details>
                     </section>
                     <div>
                       <TracksMap
-                        track={shown}
-                        gates={shownGates}
-                        venue={venue}
+                        track={showMine}
+                        gates={showMine ? shownGates : []}
+                        shape={shape}
+                        layout={osmLayout}
+                        label={venue?.name}
                         height={480}
                       />
-                      {venue && (
-                        <p className="notice">
-                          Showing {venue.name} from the catalog. Venue positions
-                          do not define timing.{" "}
-                          <button onClick={() => setVenue(null)}>
-                            Back to my track
-                          </button>
-                        </p>
-                      )}
-                      {shown && (
+                      {venue &&
+                        (mineHere.length > 0 || venue.layouts.length > 0) && (
+                          <div
+                            className="layout-chips"
+                            role="group"
+                            aria-label="Layouts"
+                          >
+                            {mineHere.map((t) => (
+                              <button
+                                key={`m${t.trackId}`}
+                                className={`chip mine${showMine?.trackId === t.trackId ? " on" : ""}`}
+                                onClick={() => {
+                                  setVenueId(venue.id);
+                                  setTrackView(t.trackId);
+                                  setOsmLayout(null);
+                                }}
+                              >
+                                <i />
+                                {t.name}
+                                <small>
+                                  {(t.lengthM / 1000).toFixed(2)} km
+                                </small>
+                              </button>
+                            ))}
+                            {venue.layouts.map((l, i) => (
+                              <button
+                                key={`o${i}`}
+                                className={`chip osm${osmLayout === i ? " on" : ""}`}
+                                onClick={() => {
+                                  setVenueId(venue.id);
+                                  setOsmLayout(i);
+                                }}
+                              >
+                                <i />
+                                {l.name}
+                                <small>
+                                  {(l.lengthM / 1000).toFixed(2)} km
+                                </small>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      {venue && !showMine && (
                         <section className="panel track-detail">
-                          <h2>{shown.name}</h2>
+                          <h2>{venue.name}</h2>
+                          {osmLayout !== null && venue.layouts[osmLayout] ? (
+                            <>
+                              <div className="track-stats">
+                                <div>
+                                  <strong>
+                                    {(
+                                      venue.layouts[osmLayout].lengthM / 1000
+                                    ).toFixed(2)}{" "}
+                                    km
+                                  </strong>
+                                  <span>{venue.layouts[osmLayout].name}</span>
+                                </div>
+                                <div>
+                                  <strong>{venue.layouts.length}</strong>
+                                  <span>
+                                    mapped{" "}
+                                    {venue.layouts.length === 1
+                                      ? "layout"
+                                      : "layouts"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <strong>{mineHere.length}</strong>
+                                  <span>of your tracks here</span>
+                                </div>
+                              </div>
+                              <p className="muted">
+                                {
+                                  layoutSourceText[
+                                    venue.layouts[osmLayout].source
+                                  ]
+                                }{" "}
+                                OpenStreetMap does not record the start/finish
+                                line or the direction of timing. They come from
+                                your recordings.
+                              </p>
+                            </>
+                          ) : (
+                            <p className="muted">
+                              No complete layout could be assembled from what is
+                              mapped here. The amber lines are the mapped track
+                              pieces.
+                            </p>
+                          )}
+                          {shape === null && (
+                            <p className="muted">Track shape unavailable.</p>
+                          )}
+                        </section>
+                      )}
+                      {showMine && (
+                        <section className="panel track-detail">
+                          <h2>{showMine.name}</h2>
                           <div className="track-stats">
                             <div>
-                              <strong>{shown.sessions.length}</strong>
+                              <strong>{showMine.sessions.length}</strong>
                               <span>sessions</span>
                             </div>
                             <div>
-                              <strong>{shown.laps}</strong>
+                              <strong>{showMine.laps}</strong>
                               <span>laps</span>
                             </div>
                             <div>
                               <strong>
-                                {shown.best ? lapTime(shown.best.ms) : "-"}
+                                {showMine.best
+                                  ? lapTime(showMine.best.ms)
+                                  : "-"}
                               </strong>
                               <span>
                                 best lap
-                                {shown.best &&
-                                  `, lap ${shown.best.lapNumber} of ${new Date(shown.best.session.start).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`}
+                                {showMine.best &&
+                                  `, lap ${showMine.best.lapNumber} of ${new Date(showMine.best.session.start).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`}
                               </span>
                             </div>
                             <div>
                               <strong>
-                                {(shown.lengthM / 1000).toFixed(2)} km
+                                {(showMine.lengthM / 1000).toFixed(2)} km
                               </strong>
                               <span>
-                                {shown.best ? "lap length" : "path length"}
+                                {showMine.best ? "lap length" : "path length"}
                               </span>
                             </div>
                           </div>
@@ -2146,17 +2308,32 @@ export default function App() {
                                 "lap start":
                                   "Start/finish line at the start of the fastest lap. No other session confirms it.",
                                 none: "No laps yet, so no start/finish line. Place one to cut the laps.",
-                              }[shown.lineFrom]
+                              }[showMine.lineFrom]
                             }
+                            {showMine.finish &&
+                              showMine.line &&
+                              ` The laps finish ${Math.round(
+                                Math.hypot(
+                                  (showMine.finish.lon - showMine.line.lon) *
+                                    Math.cos(
+                                      (showMine.line.lat * Math.PI) / 180,
+                                    ) *
+                                    111320,
+                                  (showMine.finish.lat - showMine.line.lat) *
+                                    110540,
+                                ),
+                              ).toLocaleString(
+                                "en-GB",
+                              )} m from where they start, at a separate finish line. The drive back is not timed.`}
                           </p>
                           <div className="review-actions">
                             <button
                               className="sync-button"
-                              onClick={() => analyzeTrack(shown.sessions)}
+                              onClick={() => analyzeTrack(showMine.sessions)}
                             >
                               Analyze this track
                             </button>
-                            {shown.trackId === sa?.trackId && (
+                            {showMine.trackId === sa?.trackId && (
                               <button
                                 disabled={!ref}
                                 onClick={() => {
@@ -2167,17 +2344,19 @@ export default function App() {
                                 Create / edit layout from GPS
                               </button>
                             )}
-                            {shown.sessions.some((x) => x.format === "vbo") && (
+                            {showMine.sessions.some(
+                              (x) => x.format === "vbo",
+                            ) && (
                               <button
                                 onClick={() =>
                                   setLineFor(
-                                    shown.sessions.find(
+                                    showMine.sessions.find(
                                       (x) => x.format === "vbo",
                                     )!.id,
                                   )
                                 }
                               >
-                                {shown.lineFrom === "none"
+                                {showMine.lineFrom === "none"
                                   ? "Set start/finish line"
                                   : "Move start/finish line"}
                               </button>
@@ -2189,8 +2368,8 @@ export default function App() {
                   </div>
                   <p className="footnote">
                     Catalog: © OpenStreetMap contributors · ODbL · Coverage
-                    depends on mapped tracks. Venue geometry does not define
-                    timing gates.
+                    depends on what is mapped. Mapped layouts do not define
+                    timing: the start/finish line comes from your recordings.
                   </p>
                 </>
               )}

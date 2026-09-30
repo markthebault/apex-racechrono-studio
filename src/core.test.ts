@@ -24,7 +24,7 @@ import {
   SHIFT_STEP_FACTOR,
   BRAKE_G,
 } from "./analysis";
-import type { Trace, Session } from "./model";
+import type { Trace, Session, FinishLine } from "./model";
 import {
   groupSessions,
   toggleSessions,
@@ -38,6 +38,9 @@ import { classifyFile, describeImport } from "./files";
 import { hoverBus } from "./hover";
 import { decodeVbo, trackFromFilename, trackIdFromName } from "./vbo";
 import { crossings, lapsFromLine, lineFromSession, headingAt } from "./laps";
+import { buildVenues, encodePolyline } from "./venueBuild";
+import type { OsmElement } from "./venueBuild";
+import { decodePolyline, decodeVenue, searchVenues, venueOf } from "./venues";
 import { applyLine, resolveVbo, reconcileVbo } from "./vboImport";
 import { assignTrack, knownTracks, summarizeTracks } from "./tracks";
 import { fingerprintOf } from "./fingerprint";
@@ -1739,6 +1742,99 @@ describe("track summaries for the Tracks screen", () => {
     expect(t.outline.length).toBeLessThanOrEqual(601);
     expect(t.others).toHaveLength(1);
   });
+  it("finds a separate finish line when laps end away from where they start", () => {
+    const v = circle("v", "Ring", 5);
+    const start = {
+      lat: 47.8,
+      lon: 13.17,
+      heading: headingAt(v.lat, v.lon, 0),
+      source: "user" as const,
+    };
+    const cut = applyLine(v, start);
+    expect(summarizeTracks([cut])[0].finish).toBeNull();
+    const shortLaps = cut.laps.map((l) => ({
+      ...l,
+      end: l.start + (l.end - l.start) * 0.75,
+    }));
+    const [t] = summarizeTracks([{ ...cut, laps: shortLaps }]);
+    expect(t.finish).not.toBeNull();
+    const k = Math.cos((t.line!.lat * Math.PI) / 180) * 111320;
+    const away = Math.hypot(
+      (t.finish!.lon - t.line!.lon) * k,
+      (t.finish!.lat - t.line!.lat) * 110540,
+    );
+    expect(away).toBeGreaterThan(300);
+    // Laps that end at scattered places are not a track with one finish line.
+    const scattered = cut.laps.map((l, i) => ({
+      ...l,
+      end: l.start + (l.end - l.start) * (0.5 + 0.1 * i),
+    }));
+    expect(summarizeTracks([{ ...cut, laps: scattered }])[0].finish).toBeNull();
+  });
+  describe("a track timed to a separate finish line", () => {
+    // A hill climb east along 47.8°N: each run takes 60 s from x0 to x1 metres, then a
+    // 30 s untimed drive back. `end` can vary per run to make stray laps.
+    const climb = (ends: number[], x0 = 0) => {
+      const v = circle("v", "Hill", 5);
+      const k = Math.cos((47.8 * Math.PI) / 180) * 111320;
+      const times: number[] = [],
+        lat: number[] = [],
+        lon: number[] = [];
+      const laps = ends.map((x1, run) => {
+        const t0 = 1_800_000_000_000 + run * 90000;
+        for (let i = 0; i < 900; i++) {
+          const f = i < 600 ? i / 600 : 1 - (i - 600) / 300;
+          times.push(t0 + i * 100);
+          lat.push(47.8);
+          lon.push(13.17 + (x0 + f * (x1 - x0)) / k);
+        }
+        return {
+          id: `h${run}`,
+          number: run + 1,
+          start: t0,
+          end: t0 + 60000,
+          issues: [],
+        };
+      });
+      return {
+        ...v,
+        times: Float64Array.from(times),
+        lat: Float64Array.from(lat),
+        lon: Float64Array.from(lon),
+        laps,
+        channels: [],
+      };
+    };
+    const between = (a: FinishLine, b: FinishLine) =>
+      Math.hypot(
+        (a.lon - b.lon) * Math.cos((47.8 * Math.PI) / 180) * 111320,
+        (a.lat - b.lat) * 110540,
+      );
+    it("finds the start and finish of every run", () => {
+      const [t] = summarizeTracks([climb([1500, 1500, 1500])]);
+      expect(t.finish).not.toBeNull();
+      expect(between(t.line!, t.finish!)).toBeGreaterThan(1450);
+      expect(between(t.line!, t.finish!)).toBeLessThan(1550);
+      expect(t.finish!.heading).toBeGreaterThan(80);
+      expect(t.finish!.heading).toBeLessThan(100);
+    });
+    it("is not thrown by one stray run", () => {
+      const [t] = summarizeTracks([climb([1500, 1500, 1500, 1500, 400])]);
+      expect(t.finish).not.toBeNull();
+      expect(between(t.line!, t.finish!)).toBeGreaterThan(1450);
+    });
+    it("gives up when the runs disagree or the two ends are close", () => {
+      expect(summarizeTracks([climb([1500, 400, 900])])[0].finish).toBeNull();
+      expect(summarizeTracks([climb([120, 120, 120])])[0].finish).toBeNull();
+      expect(summarizeTracks([climb([1500])])[0].finish).toBeNull();
+    });
+    it("keeps different tracks apart", () => {
+      const other = { ...climb([900, 900]), trackId: 999, track: "Other hill" };
+      const list = summarizeTracks([climb([1500, 1500]), other]);
+      expect(list).toHaveLength(2);
+      expect(list.every((x) => x.finish !== null)).toBe(true);
+    });
+  });
   it("names where the start/finish line comes from", () => {
     const v = circle("v", "Ring", 5);
     const start = {
@@ -1796,5 +1892,141 @@ describe("track summaries for the Tracks screen", () => {
       circle("c", "Big", 2),
     ]);
     expect(two.map((x) => x.name)).toEqual(["Big", "Small"]);
+  });
+});
+
+// Synthetic OpenStreetMap data: a 530 m by 500 m rectangle near 47°N 7°E with a link
+// across the middle. Node ids and names are made up.
+describe("venue catalog", () => {
+  const at: Record<number, [number, number]> = {
+    1: [47.0, 7.0],
+    2: [47.0, 7.0035],
+    3: [47.0, 7.007],
+    4: [47.0045, 7.007],
+    5: [47.0045, 7.0035],
+    6: [47.0045, 7.0],
+  };
+  const way = (
+    id: number,
+    nodes: number[],
+    tags: Record<string, string>,
+  ): OsmElement => ({
+    type: "way",
+    id,
+    nodes,
+    tags: { highway: "raceway", ...tags },
+    geometry: nodes.map((n) => ({ lat: at[n][0], lon: at[n][1] })),
+  });
+
+  it("round-trips encoded polylines to about a metre", () => {
+    const pts: [number, number][] = [
+      [47.123456, 7.654321],
+      [-33.9, 151.2],
+      [0, -0.00001],
+    ];
+    decodePolyline(encodePolyline(pts)).forEach((p, i) => {
+      expect(p[0]).toBeCloseTo(pts[i][0], 5);
+      expect(p[1]).toBeCloseTo(pts[i][1], 5);
+    });
+  });
+
+  it("lists a closed named way and the variants a link creates", () => {
+    const { index, cells } = buildVenues([
+      way(100, [1, 2, 3, 4, 5, 6, 1], {
+        name: "Circuit Test - Grand",
+        oneway: "yes",
+      }),
+      way(101, [2, 5], { name: "Short link" }),
+    ]);
+    expect(index).toHaveLength(1);
+    const v = index[0];
+    expect(v.name).toBe("Circuit Test");
+    expect(v.layouts[0]).toMatchObject({
+      name: "Grand",
+      source: "way",
+    });
+    expect(v.layouts[0].lengthM).toBeGreaterThan(2000);
+    expect(v.layouts[0].lengthM).toBeLessThan(2100);
+    const variants = v.layouts.filter((l) => l.source === "pieces");
+    expect(variants).toHaveLength(2);
+    expect(variants.every((l) => l.name.startsWith("Via Short link"))).toBe(
+      true,
+    );
+    expect(new Set(v.layouts.map((l) => l.name)).size).toBe(3);
+    const shape = decodeVenue(cells.get(v.cell)![v.id]);
+    expect(shape.pieces).toHaveLength(2);
+    expect(shape.layouts[0].points.length).toBeGreaterThan(3);
+  });
+
+  it("joins sections into a loop, leaves out the pit lane, and names the venue from its area", () => {
+    const sections = [
+      way(10, [1, 2, 3], { name: "Start", oneway: "yes" }),
+      way(11, [3, 4, 5], { name: "Gegengerade", oneway: "yes" }),
+      way(12, [5, 6, 1], { name: "Kurve", oneway: "yes" }),
+      way(13, [2, 5], { name: "Boxengasse", oneway: "yes" }),
+    ];
+    const area: OsmElement = {
+      type: "relation",
+      id: 9,
+      tags: { name: "Testring", highway: "raceway", type: "multipolygon" },
+      bounds: {
+        minlat: 46.9995,
+        minlon: 6.9995,
+        maxlat: 47.005,
+        maxlon: 7.0075,
+      },
+    };
+    const { index } = buildVenues([...sections, area]);
+    expect(index[0].name).toBe("Testring");
+    expect(index[0].layouts).toEqual([
+      { name: "Full loop", lengthM: expect.any(Number), source: "pieces" },
+    ]);
+    expect(index[0].aliases).toContain("Gegengerade");
+
+    const gp: OsmElement = {
+      type: "relation",
+      id: 8,
+      tags: { type: "circuit", name: "Test GP" },
+      members: [10, 11, 12].map((ref) => ({ type: "way", ref, role: "" })),
+    };
+    const withRelation = buildVenues([...sections, area, gp]).index[0];
+    expect(withRelation.layouts).toEqual([
+      { name: "Test GP", lengthM: expect.any(Number), source: "relation" },
+    ]);
+  });
+
+  it("leaves out mapped ground that touches no layout", () => {
+    const far = (id: number, lat: number): OsmElement => ({
+      type: "way",
+      id,
+      nodes: [id * 10, id * 10 + 1, id * 10 + 2],
+      tags: { highway: "raceway", sport: "motor" },
+      geometry: [
+        { lat, lon: 7.0015 },
+        { lat, lon: 7.002 },
+        { lat: lat + 0.0002, lon: 7.0025 },
+      ],
+    });
+    const { index, cells } = buildVenues([
+      way(100, [1, 2, 3, 4, 5, 6, 1], { name: "Circuit Test" }),
+      far(500, 47.0018),
+    ]);
+    expect(index).toHaveLength(1);
+    const shape = decodeVenue(cells.get(index[0].cell)![index[0].id]);
+    expect(shape.pieces).toHaveLength(1);
+  });
+
+  it("drops non-motor raceways and matches a recorded track to its venue", () => {
+    const { index } = buildVenues([
+      way(100, [1, 2, 3, 4, 5, 6, 1], { name: "Velodrome", sport: "cycling" }),
+      way(200, [1, 2, 3, 4, 5, 6, 1], { name: "Kart Test" }),
+    ]);
+    expect(index.map((v) => v.name)).toEqual(["Kart Test"]);
+    const outline = [at[1], at[3], at[4], at[6]].map(
+      ([lat, lon]) => [lat + 0.0005, lon] as [number, number],
+    );
+    expect(venueOf({ outline }, index)?.id).toBe(index[0].id);
+    expect(venueOf({ outline: [[48, 8]] }, index)).toBeUndefined();
+    expect(searchVenues(index, "kart")[0].venue.name).toBe("Kart Test");
   });
 });
