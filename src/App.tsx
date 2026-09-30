@@ -42,6 +42,7 @@ import {
   load,
   saveSession,
   updateSession,
+  removeSession,
   saveState,
   work,
   download,
@@ -50,9 +51,18 @@ import {
   commitProject,
   validateSync,
 } from "./storage";
-import { TrackMap } from "./Map";
+import {
+  availableChannels,
+  brakingPoints,
+  matchBrakePoints,
+  type BrakeMarker,
+} from "./telemetry";
+import { replayWindow, advanceReplay, PLAYBACK_RATES } from "./replay";
+import { BrakingComparison } from "./BrakingComparison";
+import { TrackView } from "./TrackView";
 import { Opportunities } from "./Opportunities";
 import { SessionSummary } from "./SessionSummary";
+import { RemoveSession } from "./RemoveSession";
 import { LapReview } from "./LapReview";
 import { ClockInput } from "./ClockInput";
 import { lapStatus, STATUS_LABEL } from "./lapStatus";
@@ -130,6 +140,15 @@ export default function App() {
     [busyA, setBusyA] = useState(false),
     [busyB, setBusyB] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [removeId, setRemoveId] = useState<string | null>(null),
+    [removing, setRemoving] = useState(false),
+    [removeError, setRemoveError] = useState("");
+  const pendingSave = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const [playbackRate, setPlaybackRate] = useState(1),
+    [loopSection, setLoopSection] = useState(false),
+    [showBrakePoints, setShowBrakePoints] = useState(false);
   const sessionsRef = useRef<Session[]>([]),
     importRef = useRef<(list: File[]) => void>(() => {}),
     [dragging, setDragging] = useState(false);
@@ -155,15 +174,16 @@ export default function App() {
       .catch(() => {});
   }, []);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || removing) return;
     setSaving(true);
     const t = setTimeout(() => {
       Promise.all([saveState("settings", settings), saveState("sync", sync)])
         .then(() => setSaving(false))
         .catch(report);
     }, 150);
+    pendingSave.current = t;
     return () => clearTimeout(t);
-  }, [settings, sync, ready]);
+  }, [settings, sync, ready, removing]);
   const activeTrack = sessions.find((s) =>
     s.laps.some((l) => l.id === settings.a),
   )?.trackId;
@@ -313,6 +333,68 @@ export default function App() {
       }),
     [a, b, extraLaps, settings.speedUnit],
   );
+  const channelsWithData = useMemo(
+    () => availableChannels(displayTraces),
+    [displayTraces],
+  );
+  const visibleCharts = settings.charts
+    .map((chart, index) => ({ chart, index }))
+    .filter(
+      ({ chart }) =>
+        settings.showEmptyCharts ||
+        chart.channels.some((id) => channelsWithData.has(id)),
+    );
+  const emptyChartCount = settings.charts.filter(
+    (chart) => !chart.channels.some((id) => channelsWithData.has(id)),
+  ).length;
+  const brakePairs = useMemo(
+    () =>
+      a &&
+      b &&
+      b.sessionId !== "optimal" &&
+      ![a, b].some((t) =>
+        t.issues.some((issue) => /Ambiguous|Incompatible/.test(issue)),
+      )
+        ? matchBrakePoints(brakingPoints(a), brakingPoints(b))
+        : [],
+    [a, b],
+  );
+  const brakeMarkers = useMemo<BrakeMarker[]>(
+    () =>
+      !showBrakePoints || !a || !b || b.sessionId === "optimal"
+        ? []
+        : brakePairs.flatMap((pair, i) => [
+            ...(pair.a
+              ? [
+                  {
+                    trace: a,
+                    color: settings.colors[0],
+                    label: `A${i + 1}`,
+                    distance: pair.a.start,
+                  },
+                ]
+              : []),
+            ...(pair.b
+              ? [
+                  {
+                    trace: b,
+                    color: settings.colors[1],
+                    label: `B${i + 1}`,
+                    distance: pair.b.start,
+                  },
+                ]
+              : []),
+          ]),
+    [a, b, brakePairs, showBrakePoints, settings.colors],
+  );
+  const sectionTimes = useMemo(
+    () => (a ? replayWindow(a, range) : undefined),
+    [a, range],
+  );
+  const canLoop = !!a && !!sectionTimes && range[1] - range[0] < a.length - 1;
+  useEffect(() => {
+    if (!canLoop) setLoopSection(false);
+  }, [canLoop]);
   const sa = sessions.find((s) => s.id === a?.sessionId);
   const sb = sessions.find((s) => s.id === b?.sessionId);
   // Opportunities use the ticked sessions, or all sessions of one day by default.
@@ -387,6 +469,8 @@ export default function App() {
       : undefined;
   useEffect(() => {
     if (a) {
+      setPlaying(false);
+      setLoopSection(false);
       setRange([0, a.length]);
       setExact(null);
       setCursor(0);
@@ -398,8 +482,24 @@ export default function App() {
     setExact(null);
     setCursor(d);
   };
-  const live = useRef({ a, at, range, busy: false });
-  live.current = { a, at, range, busy: busyA || busyB };
+  const live = useRef({
+    a,
+    at,
+    range,
+    busy: false,
+    playbackRate,
+    loopSection,
+    sectionTimes,
+  });
+  live.current = {
+    a,
+    at,
+    range,
+    busy: busyA || busyB,
+    playbackRate,
+    loopSection,
+    sectionTimes,
+  };
   const lastTick = useRef(0);
   const toggle = useRef<() => void>(() => {});
   const goTo = (t: number) => {
@@ -411,14 +511,26 @@ export default function App() {
     setExact(time);
     setCursor(d);
     // A zoomed window follows the cursor instead of leaving it behind.
-    setRange((r) => followRange(r, d, A.length));
+    if (!live.current.loopSection) setRange((r) => followRange(r, d, A.length));
   };
   // Play or pause. From the very end it starts over at the beginning of the lap, with the
   // zoom window moved back to the start.
   const togglePlay = () => {
-    const { a: A, range: r } = live.current;
+    const {
+      a: A,
+      range: r,
+      loopSection: loop,
+      sectionTimes: section,
+    } = live.current;
     if (!A) return;
-    if (!playing && cursor >= A.length - 1) {
+    if (
+      !playing &&
+      loop &&
+      section &&
+      (live.current.at < section[0] || live.current.at >= section[1])
+    )
+      goTo(section[0]);
+    if (!playing && !loop && cursor >= A.length - 1) {
       const width = r[1] - r[0];
       setRange(width >= A.length - 1 ? [0, A.length] : [0, width]);
       moveCursor(0);
@@ -472,7 +584,7 @@ export default function App() {
         bcursor,
       )
     : bt;
-  // Left and right arrows move lap A by 0.2 s of lap time; Shift moves 10 times as far.
+  // Left and right arrows move lap A by 0.05 s of lap time; Shift moves 10 times as far.
   useEffect(() => {
     if (!a || (tab !== "Analyze" && tab !== "Video sync")) return;
     const onKey = (e: KeyboardEvent) => {
@@ -531,8 +643,8 @@ export default function App() {
       window.removeEventListener("keyup", up);
     };
   }, [a, tab]);
-  // Playback runs on time, not position, and carries on past the edge of a zoomed window,
-  // which scrolls along with it. It stops only at the end of the lap.
+  // Replay advances the lap clock at the selected speed. Normal playback scrolls
+  // the view; looping keeps the selected window fixed and wraps its clock.
   useEffect(() => {
     if (!playing || !a) return;
     lastTick.current = performance.now();
@@ -540,16 +652,26 @@ export default function App() {
       const now = performance.now(),
         dt = now - lastTick.current;
       lastTick.current = now;
-      const { a: A, at: here, busy } = live.current;
-      if (busy) return;
-      const t = here + dt;
-      const d = interpolate(A.times, A.distance, t);
-      if (!Number.isFinite(d) || d >= A.length) {
-        setPlaying(false);
-        goTo(A.times[A.times.length - 1]);
-        return;
+      const {
+        a: A,
+        at: here,
+        busy,
+        playbackRate: rate,
+        loopSection: loop,
+        sectionTimes: section,
+      } = live.current;
+      if (busy || !A) return;
+      const bounds: [number, number] =
+        loop && section ? section : [A.times[0], A.times.at(-1)!];
+      const next = advanceReplay(here, dt, rate, bounds, loop && !!section);
+      // Keep the exact clock running through stops and outages.
+      setExact(next.time);
+      const d = interpolate(A.times, A.distance, next.time);
+      if (Number.isFinite(d)) {
+        setCursor(d);
+        if (!loop) setRange((r) => followRange(r, d, A.length));
       }
-      goTo(t);
+      if (next.ended) setPlaying(false);
     }, 80);
     return () => clearInterval(timer);
   }, [playing, a]);
@@ -781,6 +903,34 @@ export default function App() {
         binding,
       ],
     }));
+  }
+  async function deleteSession() {
+    const session = sessions.find((s) => s.id === removeId);
+    if (!session || removing) return;
+    setRemoving(true);
+    setRemoveError("");
+    // Cancel the pending autosave so it cannot restore references after deletion.
+    clearTimeout(pendingSave.current);
+    try {
+      const next = await removeSession(session, settings, sync);
+      setPlaying(false);
+      setSessions((old) => old.filter((s) => s.id !== session.id));
+      setTraces((old) => old.filter((t) => t.sessionId !== session.id));
+      setSettings(next.settings);
+      setSync(next.sync);
+      const keptFiles = { ...files };
+      for (const hash of next.removedVideos) {
+        if (keptFiles[hash]) URL.revokeObjectURL(keptFiles[hash]);
+        delete keptFiles[hash];
+      }
+      setFiles(keptFiles);
+      setRemoveId(null);
+      setStatus(`${session.filename} removed from this browser.`);
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemoving(false);
+    }
   }
   function saveGates(next: number[]) {
     if (!ref) return;
@@ -1314,13 +1464,14 @@ export default function App() {
                   {b && b.issues.length > 0 && (
                     <div className="notice">Lap B: {b.issues.join(" · ")}</div>
                   )}
-                  <TrackMap
+                  <TrackView
                     a={a}
                     others={comparisons}
                     colors={settings.colors}
                     cursor={cursor}
                     range={range}
                     gates={gates}
+                    brakeMarkers={brakeMarkers}
                     onCursor={moveCursor}
                     height={settings.mapHeight}
                     onHeight={(mapHeight) => patch({ mapHeight })}
@@ -1333,6 +1484,30 @@ export default function App() {
                       onClick={togglePlay}
                     >
                       {playing ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                    <select
+                      aria-label="Playback speed"
+                      value={playbackRate}
+                      onChange={(e) => setPlaybackRate(Number(e.target.value))}
+                    >
+                      {PLAYBACK_RATES.map((rate) => (
+                        <option key={rate} value={rate}>
+                          {rate}×
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      aria-pressed={loopSection}
+                      disabled={!canLoop}
+                      title={
+                        canLoop
+                          ? "Replay the selected section repeatedly"
+                          : "Select a section on a graph first"
+                      }
+                      onClick={() => setLoopSection(!loopSection)}
+                    >
+                      Loop section
                     </button>
                     <ClockInput
                       ms={elapsed}
@@ -1361,6 +1536,29 @@ export default function App() {
                       Reset zoom
                     </button>
                   </div>
+                  {a && b && b.sessionId !== "optimal" && (
+                    <BrakingComparison
+                      a={a}
+                      b={b}
+                      pairs={brakePairs}
+                      open={showBrakePoints}
+                      onOpen={setShowBrakePoints}
+                      onFocus={(pair) => {
+                        const starts = [pair.a?.start, pair.b?.start].filter(
+                          (n): n is number => n !== undefined,
+                        );
+                        const ends = [pair.a?.end, pair.b?.end].filter(
+                          (n): n is number => n !== undefined,
+                        );
+                        setRange([
+                          Math.max(0, Math.min(...starts) - 120),
+                          Math.min(a.length, Math.max(...ends) + 120),
+                        ]);
+                        moveCursor(pair.a?.start ?? pair.b!.start);
+                        setPlaying(false);
+                      }}
+                    />
+                  )}
                   {showVideos && (
                     <div
                       className="videos"
@@ -1394,6 +1592,7 @@ export default function App() {
                             ),
                           }))
                         }
+                        playbackRate={playbackRate}
                         playing={playing && !busyB}
                       />
                       <VideoPanel
@@ -1421,6 +1620,7 @@ export default function App() {
                             ),
                           }))
                         }
+                        playbackRate={playbackRate}
                         playing={playing && !busyA}
                       />
                     </div>
@@ -1461,10 +1661,26 @@ export default function App() {
                   )}
                   <div className="section-heading">
                     <h2>
-                      Telemetry <span>{settings.charts.length} charts</span>
+                      Telemetry{" "}
+                      <span>
+                        {visibleCharts.length}{" "}
+                        {visibleCharts.length === 1 ? "chart" : "charts"}
+                      </span>
                     </h2>
                     <div>
                       <small>Drag a chart to zoom into a section</small>
+                      {emptyChartCount > 0 && (
+                        <label className="empty-chart-toggle">
+                          <input
+                            type="checkbox"
+                            checked={!!settings.showEmptyCharts}
+                            onChange={(e) =>
+                              patch({ showEmptyCharts: e.target.checked })
+                            }
+                          />
+                          Show empty charts ({emptyChartCount})
+                        </label>
+                      )}
                       <select
                         aria-label="Add chart"
                         value=""
@@ -1482,7 +1698,7 @@ export default function App() {
                         }
                       >
                         <option value="">+ Add chart</option>
-                        {Object.keys(a.channels).map((k) => (
+                        {[...channelsWithData].map((k) => (
                           <option key={k} value={k}>
                             {definitions[k]?.name || k}
                           </option>
@@ -1490,7 +1706,7 @@ export default function App() {
                       </select>
                     </div>
                   </div>
-                  {settings.charts.map((c, i) => (
+                  {visibleCharts.map(({ chart: c, index: i }, visibleIndex) => (
                     <Chart
                       key={c.id}
                       config={c}
@@ -1529,7 +1745,11 @@ export default function App() {
                       }
                       onUp={() => {
                         const next = [...settings.charts];
-                        if (i) [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                        if (visibleIndex) {
+                          const previous =
+                            visibleCharts[visibleIndex - 1].index;
+                          [next[previous], next[i]] = [next[i], next[previous]];
+                        }
                         patch({ charts: next });
                       }}
                     />
@@ -1649,8 +1869,20 @@ export default function App() {
                                 <span>
                                   <Flag size={16} /> {s.track}
                                 </span>
-                                <span>
+                                <span className="session-card-actions">
                                   {new Date(s.start).toLocaleDateString()}
+                                  <button
+                                    className="session-remove"
+                                    aria-label={`Remove session ${s.filename}`}
+                                    title="Remove session from this browser"
+                                    disabled={!!abort.current}
+                                    onClick={() => {
+                                      setRemoveError("");
+                                      setRemoveId(s.id);
+                                    }}
+                                  >
+                                    <X size={16} />
+                                  </button>
                                 </span>
                               </div>
                               <label className="card-check">
@@ -2210,6 +2442,15 @@ export default function App() {
           </button>
         </footer>
       </main>
+      {removeId && sessions.find((s) => s.id === removeId) && (
+        <RemoveSession
+          session={sessions.find((s) => s.id === removeId)!}
+          busy={removing}
+          error={removeError}
+          onRemove={deleteSession}
+          onClose={() => setRemoveId(null)}
+        />
+      )}
       {trackFor && sessions.find((x) => x.id === trackFor) && (
         <TrackChooser
           session={sessions.find((x) => x.id === trackFor)!}

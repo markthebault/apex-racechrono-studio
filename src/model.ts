@@ -73,6 +73,7 @@ export type SyncFile = { format: "apex-sync"; version: 1; bindings: Binding[] };
 export type ChartConfig = { id: string; channels: string[]; height: number };
 export type Settings = {
   speedUnit: "km/h" | "mph";
+  showEmptyCharts?: boolean;
   colors: [string, string];
   videoHeight: number;
   a: string;

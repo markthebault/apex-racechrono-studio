@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Trace, Comparison } from "./model";
+import type { BrakeMarker } from "./telemetry";
 import { hoverBus } from "./hover";
 import {
   interpolate,
@@ -44,6 +45,7 @@ export function TrackMap({
   cursor,
   range,
   gates,
+  brakeMarkers = [],
   onCursor,
   height,
   onHeight,
@@ -55,6 +57,7 @@ export function TrackMap({
   cursor: number;
   range: [number, number];
   gates: number[];
+  brakeMarkers?: BrakeMarker[];
   onCursor: (d: number) => void;
   height: number;
   onHeight: (h: number) => void;
@@ -64,7 +67,8 @@ export function TrackMap({
     map = useRef<L.Map | null>(null),
     layers = useRef<L.LayerGroup | null>(null),
     markers = useRef<L.LayerGroup | null>(null),
-    ghosts = useRef<L.LayerGroup | null>(null);
+    ghosts = useRef<L.LayerGroup | null>(null),
+    brakingMarkers = useRef<L.LayerGroup | null>(null);
   // Distance under the pointer on a chart. Ghost cars mark it on every lap.
   const [ghost, setGhost] = useState<number | null>(null);
   // Lap A can be coloured by speed and have its braking zones marked in red.
@@ -108,6 +112,7 @@ export function TrackMap({
     layers.current = L.layerGroup().addTo(m);
     markers.current = L.layerGroup().addTo(m);
     ghosts.current = L.layerGroup().addTo(m);
+    brakingMarkers.current = L.layerGroup().addTo(m);
     const observer = new ResizeObserver(() => m.invalidateSize());
     observer.observe(el.current!);
     return () => {
@@ -288,6 +293,28 @@ export function TrackMap({
         }).addTo(ghosts.current!);
     }
   }, [ghost, a, others, colors[0]]);
+  useEffect(() => {
+    brakingMarkers.current?.clearLayers();
+    for (const point of brakeMarkers) {
+      const lat = atDistance(point.trace, point.trace.lat, point.distance),
+        lon = atDistance(point.trace, point.trace.lon, point.distance);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      L.marker([lat, lon], {
+        icon: L.divIcon({
+          className: "brake-point-marker",
+          html: `<span style="border-color:${safe(point.color)}">${point.label}</span>`,
+          iconSize: [30, 20],
+          iconAnchor: [15, 24],
+        }),
+        keyboard: false,
+      })
+        .bindTooltip(
+          `${point.label} · braking starts at ${Math.round(point.distance)} m`,
+        )
+        .on("click", () => latest.current.onCursor(point.distance))
+        .addTo(brakingMarkers.current!);
+    }
+  }, [brakeMarkers]);
   const recorded = a ? brakeSignal(a).recorded : false;
   return (
     <div className="map-shell" style={{ height }}>

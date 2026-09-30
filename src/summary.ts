@@ -62,3 +62,32 @@ export function formatGap(ms: number) {
     ? `${sign}${v.toFixed(2)}`
     : `${sign}${Math.floor(v / 60)}:${(v % 60).toFixed(2).padStart(5, "0")}`;
 }
+
+export function lapConsistency(session: Session) {
+  const times = session.laps
+    .filter(
+      (lap) =>
+        !lap.issues.some((issue) =>
+          /Interrupted|invalid|Incomplete GPS|GPS gap|Incompatible|Ambiguous/i.test(
+            issue,
+          ),
+        ),
+    )
+    .map((lap) => lap.end - lap.start)
+    .filter((ms) => Number.isFinite(ms) && ms > 0)
+    .sort((a, b) => a - b);
+  const count = times.length;
+  if (count < 2) return { count, excluded: session.laps.length - count };
+  const mean = times.reduce((sum, time) => sum + time, 0) / count;
+  const deviation = Math.sqrt(
+    times.reduce((sum, time) => sum + (time - mean) ** 2, 0) / count,
+  );
+  return {
+    count,
+    excluded: session.laps.length - count,
+    spread: times.at(-1)! - times[0],
+    deviation,
+    median:
+      (times[Math.floor((count - 1) / 2)] + times[Math.floor(count / 2)]) / 2,
+  };
+}

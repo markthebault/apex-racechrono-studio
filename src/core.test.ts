@@ -399,12 +399,12 @@ describe("keyboard stepping", () => {
     issues: [],
   } as Trace;
   it("moves by elapsed time, not distance", () => {
-    expect(STEP_MS).toBe(200);
+    expect(STEP_MS).toBe(50);
     expect(SHIFT_STEP_FACTOR).toBe(10);
-    expect(stepCursor(t, 0, STEP_MS)).toBeCloseTo(2, 6);
-    expect(stepCursor(t, 50, -STEP_MS)).toBeCloseTo(48, 6);
-    expect(stepCursor(t, 150, STEP_MS)).toBeCloseTo(154, 6);
-    expect(stepCursor(t, 0, STEP_MS * SHIFT_STEP_FACTOR)).toBeCloseTo(20, 6);
+    expect(stepCursor(t, 0, STEP_MS)).toBeCloseTo(0.5, 6);
+    expect(stepCursor(t, 50, -STEP_MS)).toBeCloseTo(49.5, 6);
+    expect(stepCursor(t, 150, STEP_MS)).toBeCloseTo(151, 6);
+    expect(stepCursor(t, 0, STEP_MS * SHIFT_STEP_FACTOR)).toBeCloseTo(5, 6);
   });
   it("stays put while the car is stopped and never leaves the lap or the range", () => {
     expect(stepCursor(t, 100, STEP_MS)).toBeCloseTo(100, 6);

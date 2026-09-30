@@ -450,7 +450,7 @@ export function nearestOnTrace(
 }
 
 // Arrow keys move the cursor by elapsed time; Shift multiplies the step.
-export const STEP_MS = 200;
+export const STEP_MS = 50;
 export const SHIFT_STEP_FACTOR = 10;
 export function stepCursor(
   t: Trace,

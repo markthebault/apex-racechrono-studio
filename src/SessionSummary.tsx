@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Session } from "./model";
 import { lapTime } from "./model";
-import { formatGap, type Summary } from "./summary";
+import { lapConsistency, formatGap, type Summary } from "./summary";
 
 export function SessionSummary({
   session,
@@ -30,6 +30,7 @@ export function SessionSummary({
   const speed =
     speedUnit === "mph" ? summary.topSpeed / 1.609344 : summary.topSpeed;
   const when = new Date(session.start);
+  const consistency = lapConsistency(session);
   const width = (bar: number) => `${(42 + 58 * bar).toFixed(0)}%`;
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -70,6 +71,40 @@ export function SessionSummary({
           {when.toLocaleDateString("en-GB")}{" "}
           {when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </span>
+        <div className="lap-consistency">
+          <h3>Lap consistency</h3>
+          {consistency.spread === undefined ? (
+            <p>
+              Need at least two complete, uninterrupted laps.{" "}
+              {consistency.count} available.
+            </p>
+          ) : (
+            <>
+              <div>
+                <span>
+                  <strong>{(consistency.spread / 1000).toFixed(2)} s</strong>{" "}
+                  fastest to slowest
+                </span>
+                <span>
+                  <strong>
+                    {(consistency.deviation! / 1000).toFixed(2)} s
+                  </strong>{" "}
+                  standard deviation
+                </span>
+                <span>
+                  <strong>{lapTime(consistency.median!)}</strong> median lap
+                </span>
+              </div>
+              <p>
+                {consistency.count} complete, uninterrupted laps
+                {consistency.excluded > 0
+                  ? ` · ${consistency.excluded} flagged ${consistency.excluded === 1 ? "lap" : "laps"} omitted`
+                  : ""}
+                . Smaller spread means more repeatable times.
+              </p>
+            </>
+          )}
+        </div>
         <div className="summary-table">
           <div className="summary-row summary-labels">
             <span>Lap</span>

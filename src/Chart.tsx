@@ -44,6 +44,8 @@ export function Chart({
   // Hover only previews values; a click moves the shared cursor.
   const [hover, setHover] = useState<number | null>(null),
     [selection, setSelection] = useState<[number, number] | null>(null);
+  const [sharedHover, setSharedHover] = useState<number | null>(null);
+  useEffect(() => hoverBus.subscribe(setSharedHover), []);
   // Cumulative time delta of A against each other lap sits behind the speed traces.
   const showDelta =
     others.length > 0 &&
@@ -179,7 +181,6 @@ export function Chart({
     ctx.setLineDash([]);
     config.channels.forEach((id, channelIndex) => {
       const av = a.channels[id];
-      if (!av) return;
       let min = Infinity,
         max = -Infinity;
       for (const arr of [av, ...others.map((o) => o.trace.channels[id])])
@@ -272,8 +273,13 @@ export function Chart({
         x1 = px(Math.max(...selection));
       ctx.fillRect(x0, 0, x1 - x0, h - 20);
     }
-    if (hover !== null && !selection) {
-      const hx = px(hover);
+    if (
+      sharedHover !== null &&
+      sharedHover >= range[0] &&
+      sharedHover <= range[1] &&
+      !selection
+    ) {
+      const hx = px(sharedHover);
       ctx.strokeStyle = "#e6edf2";
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
@@ -282,6 +288,9 @@ export function Chart({
       ctx.lineTo(hx, h - 20);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    if (hover !== null && !selection) {
+      const hx = px(hover);
       const value = (t: Trace | undefined, id: string) => {
         if (!t) return "";
         const v = atDistance(t, t.channels[id] || [], hover);
@@ -390,7 +399,18 @@ export function Chart({
     const o = new ResizeObserver(draw);
     o.observe(canvas.current!);
     return () => o.disconnect();
-  }, [a, others, cursor, range, config, colors, joins, hover, selection]);
+  }, [
+    a,
+    others,
+    cursor,
+    range,
+    config,
+    colors,
+    joins,
+    hover,
+    sharedHover,
+    selection,
+  ]);
   const position = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();
     return Math.max(

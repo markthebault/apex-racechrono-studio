@@ -27,6 +27,60 @@ export async function updateSession(session: Session) {
   if (!record) throw Error("Session not found.");
   await d.put("sessions", { session, file: record.file });
 }
+// Remove the stored recording and its references together, retaining shared videos.
+export async function removeSession(
+  session: Session,
+  settings: Settings,
+  sync: SyncFile,
+) {
+  const lapIds = new Set(session.laps.map((lap) => lap.id));
+  const ownsLap = (id: string) =>
+    lapIds.has(id) || id.startsWith(session.id + ":");
+  const nextSettings: Settings = {
+    ...settings,
+    a: ownsLap(settings.a) ? "" : settings.a,
+    b: ownsLap(settings.b) ? "" : settings.b,
+    collection: settings.collection.filter((id) => id !== session.id),
+    excluded: settings.excluded.filter((id) => !ownsLap(id)),
+    included: settings.included.filter((id) => !ownsLap(id)),
+    layouts: settings.layouts.filter((layout) => !ownsLap(layout.referenceId)),
+    ...(settings.extras && {
+      extras: settings.extras.filter((lap) => !ownsLap(lap.id)),
+    }),
+  };
+  const nextSync: SyncFile = {
+    ...sync,
+    bindings: sync.bindings.filter((b) => b.session.sha256 !== session.id),
+  };
+  const keptVideos = new Set(
+    nextSync.bindings.flatMap((b) => b.clips.map((clip) => clip.sha256)),
+  );
+  const removedVideos = [
+    ...new Set(
+      sync.bindings
+        .filter((b) => b.session.sha256 === session.id)
+        .flatMap((b) => b.clips.map((clip) => clip.sha256))
+        .filter((hash) => !keptVideos.has(hash)),
+    ),
+  ];
+  const d = await db;
+  const tx = d.transaction(["sessions", "state", "handles"], "readwrite");
+  try {
+    await tx.objectStore("sessions").delete(session.id);
+    await tx.objectStore("state").put(nextSettings, "settings");
+    await tx.objectStore("state").put(nextSync, "sync");
+    for (const hash of removedVideos)
+      await tx.objectStore("handles").delete(hash);
+    await tx.done;
+  } catch (e) {
+    try {
+      tx.abort();
+    } catch {}
+    await tx.done.catch(() => {});
+    throw e;
+  }
+  return { settings: nextSettings, sync: nextSync, removedVideos };
+}
 export async function commitProject(
   records: { session: Session; file: Blob }[],
   settings: Settings,
@@ -295,6 +349,8 @@ export function validateSettings(s: any) {
     )
   )
     throw Error("Invalid saved charts.");
+  if (s.showEmptyCharts !== undefined && typeof s.showEmptyCharts !== "boolean")
+    throw Error("Invalid empty-chart preference.");
   if (
     !Array.isArray(s.layouts) ||
     s.layouts.some(

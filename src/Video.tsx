@@ -33,6 +33,7 @@ export function VideoPanel({
   onBusy,
   label,
   playing,
+  playbackRate = 1,
   onPause,
   onUnlink,
   onGoTo,
@@ -49,6 +50,7 @@ export function VideoPanel({
   onBusy: (busy: boolean) => void;
   label: string;
   playing: boolean;
+  playbackRate?: number;
   onPause: () => void;
   onUnlink: () => void;
   onGoTo?: (stamp: number) => void;
@@ -107,6 +109,7 @@ export function VideoPanel({
     }
     const v = video.current,
       target = Math.max(0, Math.min(clip.duration, vt - clip.start));
+    v.playbackRate = playbackRate;
     if (Math.abs(v.currentTime - target) > (playing ? 0.35 : 0.04)) {
       onBusy(true);
       v.currentTime = target;
@@ -125,7 +128,7 @@ export function VideoPanel({
         } else setError(`Playback unavailable: ${e.message}`);
       });
     else v.pause();
-  }, [vt, url, editing, playing]);
+  }, [vt, url, editing, playing, playbackRate]);
   useEffect(() => () => onBusy(false), []);
   useEffect(() => {
     setSelected(0);
