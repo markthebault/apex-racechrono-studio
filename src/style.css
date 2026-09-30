@@ -2219,7 +2219,7 @@ button.collection-name:focus-visible {
 }
 
 .sf-bar-wrap {
-  position: relative;
+  /* No position here: Leaflet sets absolute, and relative would stack the markers. */
   background: none;
   border: 0;
   display: flex;
@@ -2250,6 +2250,26 @@ button.collection-name:focus-visible {
   box-shadow: 0 0 6px #000;
   background: repeating-linear-gradient(90deg, #fff 0 7px, #111 7px 14px);
 }
+.sf-bar.start {
+  background: #2fbf71;
+  border-color: #eafff3;
+}
+.sf-tag.start {
+  background: #2fbf71;
+  border-color: #eafff3;
+  color: #06210f;
+}
+.sf-tag.finish {
+  background: #fff;
+  border-color: #111;
+  color: #111;
+}
+.map-legend i.start {
+  width: 14px;
+  height: 8px;
+  background: #2fbf71;
+  border: 1px solid #eafff3;
+}
 .sf-bar::after {
   content: "";
   position: absolute;
@@ -2259,4 +2279,66 @@ button.collection-name:focus-visible {
   border: 6px solid transparent;
   border-bottom: 10px solid #63e5d2;
   border-top: 0;
+}
+.venue-group {
+  border-bottom: 1px solid var(--border);
+}
+.track-results .venue-group button {
+  border-bottom: 0;
+}
+.track-results .venue-head {
+  padding: 14px 10px 6px;
+  font-weight: 600;
+}
+.track-results .venue-head small {
+  color: #e0a35b;
+  font-weight: 400;
+}
+.track-results .venue-head.on {
+  background: #f5a52412;
+}
+.track-results .my-track.nested {
+  padding: 9px 10px 11px 36px;
+  font-size: 13px;
+}
+.track-results .catalog button.on {
+  background: #f5a52412;
+}
+.layout-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.layout-chips .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid #2a2f34;
+  background: #121a1f;
+}
+.layout-chips .chip small {
+  color: #8d9aa4;
+}
+.layout-chips .chip i {
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+}
+.layout-chips .chip.mine i {
+  background: #63e5d2;
+}
+.layout-chips .chip.osm i {
+  background: #f5a524;
+}
+.layout-chips .chip.mine.on {
+  border-color: #63e5d2;
+  background: #63e5d218;
+}
+.layout-chips .chip.osm.on {
+  border-color: #f5a524;
+  background: #f5a52418;
 }
