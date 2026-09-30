@@ -59,6 +59,16 @@ npm run catalog
 
 Catalog data © OpenStreetMap contributors, ODbL 1.0. See https://www.openstreetmap.org/copyright. The script uses a single Overpass request; failed requests preserve the previous snapshot. Street-map tiles use OpenStreetMap's standard server with visible attribution and normal browser caching. There is no tile prefetch. Production caches the application shell for offline telemetry use; map tiles and external fonts require connectivity or an existing browser cache.
 
+## VBO files
+
+Racelogic VBO files import the same way as `.rcz`, including by dropping them on the window. This covers what VBOX loggers, Dragy, RaceChrono and other tools write: time as `HHMMSS.sss` in UTC with the date taken from the file's text, coordinates in minutes of arc with west positive, and speed in km/h or mph. Speed, heading, height and satellites map to the usual channels, and any other numeric column shows as a raw column. Rows that do not parse are skipped and counted. The format was verified on a Dragy Lap export.
+
+A VBO normally has **no laps and no track ID**, so both are worked out:
+
+- **Track.** The name comes from the filename, for example `dragylap_20250418_165151_Salzburgring.vbo` is Salzburgring. A finish line from another session that lies on the same path identifies the track, and the VBO joins it. A RaceChrono session of the same name that arrives later takes the VBO in too, whichever came first.
+- **Laps.** Laps are cut where the path crosses a start/finish line in its direction of travel, to a fraction of a sample. The line comes from another session of that track, from where its laps begin. If none is known, the session imports with no laps and a prompt, and **Set start/finish line** opens a map where you click the track. The result is shown live, for example `18 laps found. Best 1:34.774`, before you keep it. **Move start/finish line** changes it later. A line you placed is kept when the same file is imported again and travels in Export project. In a mixed drop the RaceChrono sessions are read first so their lines are known.
+- **Accuracy.** On a real Dragy file of Salzburgring the finish line from a RaceChrono session gave 18 laps with a best of 1:34.774, and moving the line 25 m along the track changed the best by 0.004 s. Lap times follow the line, so a VBO lap can differ slightly from what the device's own app showed if its line sat elsewhere.
+
 RCZ decoding is verified against the two supplied version-1 archives. GPS coordinates use signed fixed-point values divided by 6,000,000; timestamps are little-endian int64 milliseconds. GPS speed is mm/s and is converted to km/h; altitude is mm. Recognized OBD float64 channels are RPM, throttle, coolant, intake temperature and speed. Other structurally supported channels are exposed as raw values with no invented units. Original archive entries remain preserved. The lap RaceChrono lists without a finish time, because recording stopped during it, is skipped as untimed. Other RCZ variants may require additional decoder support and produce an explicit error.
 
 ## Validation

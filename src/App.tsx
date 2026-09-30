@@ -41,6 +41,7 @@ import {
 import {
   load,
   saveSession,
+  updateSession,
   saveState,
   work,
   download,
@@ -57,6 +58,8 @@ import { ClockInput } from "./ClockInput";
 import { lapStatus, STATUS_LABEL } from "./lapStatus";
 import { summarize } from "./summary";
 import { classifyFile, describeImport } from "./files";
+import { applyLine, reconcileVbo, resolveVbo } from "./vboImport";
+import { LineEditor } from "./LineEditor";
 import {
   groupSessions,
   isSelected,
@@ -111,6 +114,7 @@ export default function App() {
     [traces, setTraces] = useState<Trace[]>([]),
     [summaryId, setSummaryId] = useState<string | null>(null),
     [reviewId, setReviewId] = useState<string | null>(null),
+    [lineFor, setLineFor] = useState<string | null>(null),
     // Exact lap A time in ms. Position alone cannot say when, because a stop repeats it.
     [exact, setExact] = useState<number | null>(null),
     [oppDay, setOppDay] = useState<string>(),
@@ -540,6 +544,16 @@ export default function App() {
     }, 80);
     return () => clearInterval(timer);
   }, [playing, a]);
+  // Brings VBO sessions into line with the tracks and finish lines that are known now.
+  async function reconcile() {
+    const fresh = (await load()).records
+      .map((r) => r.session)
+      .sort((a, b) => a.start - b.start);
+    const merged = reconcileVbo(fresh);
+    if (merged === fresh) return;
+    for (const m of merged) if (!fresh.includes(m)) await updateSession(m);
+    setSessions(merged);
+  }
   // Sessions, projects and sync files, from the file picker or dropped anywhere on the
   // window. Each file is handled on its own, so one bad file does not stop the rest.
   async function importFiles(list: File[]) {
@@ -549,14 +563,20 @@ export default function App() {
       failures: string[] = [];
     let alreadyThere = 0,
       videos = 0;
-    for (const file of list) {
+    // VBO files borrow their finish line from sessions of the same track, so in a mixed
+    // batch the RaceChrono sessions go first.
+    const isVbo = (f: File) => /\.vbo$/i.test(f.name);
+    const ordered = [...list].sort(
+      (a, b) => Number(isVbo(a)) - Number(isVbo(b)),
+    );
+    for (const file of ordered) {
       if (abort.current?.signal.aborted) break;
       try {
         const kind = classifyFile(file.name);
         if (kind === "video") {
           videos++;
         } else if (kind === "unsupported") {
-          failures.push(`${file.name}: not a RaceChrono session (.rcz)`);
+          failures.push(`${file.name}: not a session file (.rcz or .vbo)`);
         } else if (kind === "sync") {
           const imported = validateSync(JSON.parse(await file.text()));
           setSync((st) => ({
@@ -588,13 +608,24 @@ export default function App() {
           setStatus("Project restored. Videos can be relinked by hash.");
         } else {
           setStatus(`Reading ${file.name}`);
-          const s = await work<Session>(
+          const decoded = await work<Session>(
             "decode",
             { file },
             (p) =>
               setStatus(`Importing ${file.name} · ${Math.round(p * 100)}%`),
             abort.current!.signal,
           );
+          // A VBO has no laps of its own. They come from a finish line already known for
+          // the same track, which also decides which track the session belongs to.
+          const s =
+            decoded.format === "vbo"
+              ? resolveVbo(decoded, [
+                  ...sessionsRef.current,
+                  ...added.filter(
+                    (x) => !sessionsRef.current.some((o) => o.id === x.id),
+                  ),
+                ])
+              : decoded;
           await saveSession(s, file);
           if (sessionsRef.current.some((x) => x.id === s.id)) alreadyThere++;
           else added.push(s);
@@ -616,6 +647,11 @@ export default function App() {
       }
     }
     abort.current = null;
+    try {
+      await reconcile();
+    } catch (e) {
+      failures.push(e instanceof Error ? e.message : String(e));
+    }
     if (failures.length) setError(failures.join("\n"));
     if (added.length || alreadyThere || videos) {
       // A session on a track that was not in the collection before opens the analyzer
@@ -891,7 +927,7 @@ export default function App() {
           hidden
           multiple
           type="file"
-          accept=".rcz,.json,.zip"
+          accept=".rcz,.vbo,.json,.zip"
           onChange={(e) => {
             importFiles(Array.from(e.target.files || []));
             e.target.value = "";
@@ -956,8 +992,8 @@ export default function App() {
             (b) => !sessions.some((s) => s.id === b.session.sha256),
           ) && (
             <div className="notice">
-              Saved sync references missing sessions. Import the original RCZ
-              files; matching hashes restore their bindings.
+              Saved sync references missing sessions. Import the original
+              session files; matching hashes restore their bindings.
             </div>
           )}
           {!sessions.length && tab !== "Tracks" ? (
@@ -986,7 +1022,8 @@ export default function App() {
                 </button>
               )}
               <small>
-                RCZ sessions · Sync files · Project archives
+                RaceChrono .rcz and VBO .vbo sessions · Sync files · Project
+                archives
                 <br />
                 Processed in your browser. Nothing uploaded.
               </small>
@@ -1371,8 +1408,8 @@ export default function App() {
                   {tab === "Video sync" && (
                     <div className="notice">
                       <span>
-                        Download timing only. RCZ and video filenames, SHA-256
-                        hashes, clip order, and anchors are included. No
+                        Download timing only. Session and video filenames,
+                        SHA-256 hashes, clip order, and anchors are included. No
                         recording data.
                       </span>
                       <button
@@ -1600,10 +1637,31 @@ export default function App() {
                               </label>
                               <button
                                 className="card-summary"
+                                disabled={!s.laps.length}
                                 onClick={() => setSummaryId(s.id)}
                               >
                                 Lap times
                               </button>
+                              {s.format === "vbo" && (
+                                <>
+                                  <button
+                                    className="card-summary"
+                                    onClick={() => setLineFor(s.id)}
+                                  >
+                                    {s.laps.length
+                                      ? "Move start/finish line"
+                                      : "Set start/finish line"}
+                                  </button>
+                                  {!s.laps.length && (
+                                    <p className="notice">
+                                      This file has no lap data and no known
+                                      finish line for this track, so it has no
+                                      laps yet. Place the start/finish line to
+                                      cut them.
+                                    </p>
+                                  )}
+                                </>
+                              )}
                               <h2>
                                 {new Date(s.start).toLocaleTimeString([], {
                                   hour: "2-digit",
@@ -1720,11 +1778,14 @@ export default function App() {
                                   {s.unknown.length}
                                 </p>
                                 <small className="hash">SHA-256 {s.id}</small>
-                                <p>
-                                  RaceChrono optimal:{" "}
-                                  {lapTime(s.importedOptimal)}. Original sector
-                                  definitions are not included in this archive.
-                                </p>
+                                {Number.isFinite(s.importedOptimal) && (
+                                  <p>
+                                    RaceChrono optimal:{" "}
+                                    {lapTime(s.importedOptimal)}. Original
+                                    sector definitions are not included in this
+                                    archive.
+                                  </p>
+                                )}
                               </details>
                             </section>
                           ))}
@@ -2007,6 +2068,28 @@ export default function App() {
           </button>
         </footer>
       </main>
+      {lineFor && sessions.find((x) => x.id === lineFor) && (
+        <LineEditor
+          session={sessions.find((x) => x.id === lineFor)!}
+          onClose={() => setLineFor(null)}
+          onApply={async (line) => {
+            const current = sessions.find((x) => x.id === lineFor)!;
+            const updated = applyLine(current, line);
+            try {
+              await updateSession(updated);
+              setSessions((old) =>
+                old.map((x) => (x.id === updated.id ? updated : x)),
+              );
+              setStatus(
+                `${updated.laps.length} laps found for ${updated.track}.`,
+              );
+              setLineFor(null);
+            } catch (e) {
+              report(e);
+            }
+          }}
+        />
+      )}
       {reviewTrace && reviewSession && (
         <LapReview
           title={`Lap ${String(reviewTrace.lap.number).padStart(2, "0")} · ${lapTime(reviewTrace.lap.end - reviewTrace.lap.start)}`}

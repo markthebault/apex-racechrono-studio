@@ -1,6 +1,7 @@
 import { openDB } from "idb";
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
 import type { Session, Settings, SyncFile, Binding } from "./model";
+import { applyLine } from "./vboImport";
 const db = openDB("apex-studio", 1, {
   upgrade(d) {
     d.createObjectStore("sessions", { keyPath: "session.id" });
@@ -18,6 +19,13 @@ export async function load() {
 }
 export async function saveSession(session: Session, file: Blob) {
   await (await db).put("sessions", { session, file });
+}
+// Replaces the decoded session, for example after its laps were recut, keeping the file.
+export async function updateSession(session: Session) {
+  const d = await db;
+  const record = await d.get("sessions", session.id);
+  if (!record) throw Error("Session not found.");
+  await d.put("sessions", { session, file: record.file });
 }
 export async function commitProject(
   records: { session: Session; file: Blob }[],
@@ -199,14 +207,21 @@ export async function exportProject(settings: Settings, sync: SyncFile) {
         sessions: records.map((r) => ({
           id: r.session.id,
           filename: r.session.filename,
+          ...(r.session.format === "vbo"
+            ? {
+                track: r.session.track,
+                trackId: r.session.trackId,
+                line: r.session.line,
+              }
+            : {}),
         })),
       }),
     ),
   };
   for (const r of records)
-    files[`sessions/${r.session.id}.rcz`] = new Uint8Array(
-      await r.file.arrayBuffer(),
-    );
+    files[
+      `sessions/${r.session.id}.${r.session.format === "vbo" ? "vbo" : "rcz"}`
+    ] = new Uint8Array(await r.file.arrayBuffer());
   download("track-day.apex.zip", zipSync(files) as BlobPart, "application/zip");
 }
 export async function readProject(file: File) {
@@ -232,11 +247,25 @@ export async function readProject(file: File) {
   manifest.sync = validateSync(manifest.sync);
   const records = [];
   for (const entry of manifest.sessions) {
-    const bytes = z[`sessions/${entry.id}.rcz`];
+    const bytes =
+      z[`sessions/${entry.id}.rcz`] ?? z[`sessions/${entry.id}.vbo`];
     if (!bytes) throw Error("Project session is missing.");
     const f = new File([bytes as BlobPart], entry.filename);
-    const session = await work<Session>("decode", { file: f });
+    let session = await work<Session>("decode", { file: f });
     if (session.id !== entry.id) throw Error("Project session hash mismatch.");
+    // A VBO carries no laps, so its track and finish line travel in the manifest.
+    if (session.format === "vbo" && entry.line) {
+      session = applyLine(
+        {
+          ...session,
+          track: String(entry.track ?? session.track),
+          trackId: Number.isFinite(entry.trackId)
+            ? entry.trackId
+            : session.trackId,
+        },
+        entry.line,
+      );
+    }
     records.push({ session, file: f });
   }
   return { manifest, records };

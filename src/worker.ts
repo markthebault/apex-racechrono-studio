@@ -1,5 +1,6 @@
 import { createSHA256 } from "hash-wasm";
 import { decode } from "./decoder";
+import { decodeVbo } from "./vbo";
 import { fingerprintOf } from "./fingerprint";
 import { trace, align, optimal } from "./analysis";
 self.onmessage = async ({ data }) => {
@@ -44,7 +45,11 @@ self.onmessage = async ({ data }) => {
     self.postMessage({
       result:
         data.kind === "decode"
-          ? decode(new Uint8Array(await file.arrayBuffer()), file.name, id)
+          ? (/\.vbo$/i.test(file.name) ? decodeVbo : decode)(
+              new Uint8Array(await file.arrayBuffer()),
+              file.name,
+              id,
+            )
           : { sha256: id, name: file.name, size: file.size },
     });
   } catch (e) {

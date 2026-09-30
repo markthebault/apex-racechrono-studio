@@ -36,6 +36,9 @@ import {
 import { summarize, formatGap } from "./summary";
 import { classifyFile, describeImport } from "./files";
 import { hoverBus } from "./hover";
+import { decodeVbo, trackFromFilename, trackIdFromName } from "./vbo";
+import { crossings, lapsFromLine, lineFromSession, headingAt } from "./laps";
+import { applyLine, resolveVbo, reconcileVbo } from "./vboImport";
 import { fingerprintOf } from "./fingerprint";
 import { readCreationTime, matchVideoStart } from "./mp4";
 import { parseLapTime } from "./model";
@@ -1158,5 +1161,355 @@ describe("video fingerprint", () => {
     expect(await cachedHash("nothing:0:x")).toBeUndefined();
     await rememberHash("3:1:abc", "f".repeat(64));
     expect(await cachedHash("3:1:abc")).toBe("f".repeat(64));
+  });
+});
+
+describe("VBO import", () => {
+  // A car lapping a 300 m radius circle at 40 m/s, sampled at 10 Hz. Real VBO conventions:
+  // minutes of arc, longitude positive to the west, time as HHMMSS.sss in UTC.
+  const LAT = 47.8,
+    LON = 13.17;
+  const K = 6371000 * (Math.PI / 180);
+  const lapSeconds = (2 * Math.PI * 300) / 40;
+  const build = (
+    o: {
+      seconds?: number;
+      startTod?: number;
+      crlf?: boolean;
+      extraRows?: string[];
+      headerDate?: string;
+      speedName?: string;
+      noDate?: boolean;
+    } = {},
+  ) => {
+    const n = Math.round((o.seconds ?? 200) * 10);
+    const rows: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / 10) * (40 / 300);
+      const lat = LAT + (300 * Math.sin(a)) / K,
+        lon =
+          LON +
+          (300 * (Math.cos(a) - 1)) / (K * Math.cos(LAT * (Math.PI / 180)));
+      const tod = (o.startTod ?? 12 * 3600 + 30 * 60) + i / 10;
+      const h = Math.floor(tod / 3600) % 24,
+        m = Math.floor((tod % 3600) / 60),
+        sec = tod % 60;
+      const hms = `${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}${sec.toFixed(3).padStart(6, "0")}`;
+      rows.push(
+        `010 ${hms} ${(lat * 60).toFixed(6)} ${(-lon * 60).toFixed(6)} ${(144).toFixed(3)} ${((a * 180) / Math.PI + 90).toFixed(2)} +00500.00`,
+      );
+    }
+    const nl = o.crlf ? "\r\n" : "\n";
+    const head = [
+      o.noDate
+        ? "Nothing useful"
+        : `File created on ${o.headerDate ?? "27/09/2026"} @ 12:30`,
+      "",
+      "[header]",
+      "satellites",
+      "time",
+      "latitude",
+      "longitude",
+      `velocity ${o.speedName ?? "kmh"}`,
+      "heading",
+      "height",
+      "",
+      "[comments]",
+      o.noDate
+        ? "none"
+        : `UTC Date Started: ${o.headerDate ?? "27/09/2026"} 12:30`,
+      "",
+      "[column names]",
+      "sats time lat long velocity heading height",
+      "",
+      "[data]",
+    ];
+    return new TextEncoder().encode(
+      [...head, ...rows, ...(o.extraRows ?? [])].join(nl),
+    );
+  };
+  it("reads times, coordinates and channels with VBOX conventions", () => {
+    const s = decodeVbo(
+      build(),
+      "dragylap_20260927_123000_Test_Ring.vbo",
+      "id1",
+    );
+    expect(s.format).toBe("vbo");
+    expect(s.times.length).toBe(2000);
+    expect(s.start).toBe(Date.UTC(2026, 8, 27, 12, 30, 0));
+    expect(s.times[10] - s.times[0]).toBeCloseTo(1000, 3);
+    expect(s.lat[0]).toBeCloseTo(LAT, 5);
+    expect(s.lon[0]).toBeCloseTo(LON, 5);
+    expect(s.channels.find((c) => c.id === "speed")!.values[5]).toBeCloseTo(
+      144,
+      6,
+    );
+    expect(s.channels.map((c) => c.id)).toEqual([
+      "speed",
+      "heading",
+      "altitude",
+      "satellites",
+    ]);
+    expect(s.channels.find((c) => c.id === "altitude")!.values[0]).toBe(500);
+    expect(s.laps).toEqual([]);
+    expect(Number.isNaN(s.importedOptimal)).toBe(true);
+  });
+  it("names the track from the filename and gives it a stable id of its own", () => {
+    expect(trackFromFilename("dragylap_20250418_165151_Salzburgring.vbo")).toBe(
+      "Salzburgring",
+    );
+    expect(trackFromFilename("my_session_Nurburgring_Nordschleife.VBO")).toBe(
+      "my session Nurburgring Nordschleife",
+    );
+    expect(trackFromFilename("20250418.vbo")).toBe("Unnamed track");
+    expect(trackIdFromName("Salzburgring")).toBe(
+      trackIdFromName("salzburgring"),
+    );
+    expect(trackIdFromName("Salzburgring")).toBeLessThan(0);
+  });
+  it("copes with Windows line endings, mph, and bad or repeated rows", () => {
+    const s = decodeVbo(
+      build({
+        crlf: true,
+        speedName: "mph",
+        seconds: 20,
+        extraRows: [
+          "010 123020.000",
+          "abc def",
+          "010 123019.900 +2868.0 -790.0 001.0 000.0 +00500.0",
+        ],
+      }),
+      "x.vbo",
+      "id2",
+    );
+    expect(s.times.length).toBe(200);
+    expect(s.channels.find((c) => c.id === "speed")!.values[0]).toBeCloseTo(
+      144 * 1.609344,
+      4,
+    );
+    expect(s.unknown[0]).toMatch(/rows skipped/);
+  });
+  it("moves to the next day when the clock passes midnight, and picks the day of the header", () => {
+    const s = decodeVbo(
+      build({
+        seconds: 30,
+        startTod: 24 * 3600 - 10,
+        headerDate: "27/09/2026",
+      }),
+      "x.vbo",
+      "id3",
+    );
+    expect(s.start).toBe(Date.UTC(2026, 8, 27, 23, 59, 50));
+    expect(s.end - s.start).toBeCloseTo(29900, 0);
+    expect(new Date(s.end).getUTCDate()).toBe(28);
+  });
+  it("refuses files that are not usable VBOs", () => {
+    const text = (x: string) => new TextEncoder().encode(x);
+    expect(() => decodeVbo(text("hello"), "x.vbo", "i")).toThrow("[data]");
+    expect(() =>
+      decodeVbo(
+        text(
+          "File created on 01/01/2026 @ 10:00\n[column names]\na b\n[data]\n1 2 3",
+        ),
+        "x.vbo",
+        "i",
+      ),
+    ).toThrow("column names");
+    expect(() => decodeVbo(build({ noDate: true }), "x.vbo", "i")).toThrow(
+      "what day",
+    );
+    expect(() =>
+      decodeVbo(
+        text(
+          "File created on 01/01/2026 @ 10:00\n[column names]\ntime lat long\n[data]\n",
+        ),
+        "x.vbo",
+        "i",
+      ),
+    ).toThrow("no data rows");
+  });
+  const line = { lat: LAT, lon: LON, heading: 0 + 0, source: "user" as const };
+  it("finds the laps of a car circling past a finish line, to the millisecond", () => {
+    const s = decodeVbo(build({ seconds: 300 }), "x.vbo", "id4");
+    // At the start the car is at the circle's west-most point and heading north.
+    const laps = lapsFromLine(s.id, s.times, s.lat, s.lon, {
+      ...line,
+      heading: headingAt(s.lat, s.lon, 0),
+    });
+    expect(laps.length).toBeGreaterThanOrEqual(5);
+    for (const l of laps)
+      expect(l.end - l.start).toBeCloseTo(lapSeconds * 1000, -1);
+    expect(laps[0].id).toBe("id4:1");
+  });
+  it("ignores crossings in the wrong direction and ones too close together", () => {
+    const s = decodeVbo(build({ seconds: 300 }), "x.vbo", "id5");
+    const wrong = {
+      ...line,
+      heading: (headingAt(s.lat, s.lon, 0) + 180) % 360,
+    };
+    expect(crossings(s.times, s.lat, s.lon, wrong).length).toBe(0);
+    const right = { ...line, heading: headingAt(s.lat, s.lon, 0) };
+    const all = crossings(s.times, s.lat, s.lon, right, 20000);
+    expect(crossings(s.times, s.lat, s.lon, right, 60000).length).toBeLessThan(
+      all.length,
+    );
+  });
+  it("merges a VBO into a RaceChrono track that arrives later, keeping a line placed by hand", () => {
+    const vboA = decodeVbo(
+      build({ seconds: 300 }),
+      "dragylap_1_Test_Ring.vbo",
+      "a",
+    );
+    const placed = applyLine(vboA, {
+      ...line,
+      heading: headingAt(vboA.lat, vboA.lon, 0),
+      source: "user",
+    });
+    const rc = {
+      ...applyLine(vboA, {
+        ...line,
+        heading: headingAt(vboA.lat, vboA.lon, 0),
+      }),
+      id: "rc",
+      format: "rcz" as const,
+      track: "test ring",
+      trackId: 77,
+    };
+    const out = reconcileVbo([placed, rc]);
+    const merged = out.find((x) => x.id === "a")!;
+    expect(merged.trackId).toBe(77);
+    expect(merged.track).toBe("test ring");
+    expect(merged.line?.source).toBe("user");
+    expect(out.find((x) => x.id === "rc")).toBe(rc);
+    // Nothing to reconcile returns the very same array.
+    expect(reconcileVbo(out)).toBe(out);
+    expect(reconcileVbo([vboA])).toEqual([vboA]);
+  });
+  it("gives a VBO that never got a line the RaceChrono session's line when that arrives", () => {
+    const vboA = decodeVbo(build({ seconds: 300 }), "x_Test_Ring.vbo", "a");
+    const rc = {
+      ...applyLine(vboA, {
+        ...line,
+        heading: headingAt(vboA.lat, vboA.lon, 0),
+      }),
+      id: "rc",
+      format: "rcz" as const,
+      track: "Test Ring",
+      trackId: 9,
+    };
+    const merged = reconcileVbo([vboA, rc]).find((x) => x.id === "a")!;
+    expect(merged.trackId).toBe(9);
+    expect(merged.laps.length).toBeGreaterThanOrEqual(5);
+  });
+  it("takes the line from a session's lap starts, and distrusts scattered ones", () => {
+    const s = decodeVbo(build({ seconds: 300 }), "x.vbo", "id6");
+    const withLaps = applyLine(s, {
+      ...line,
+      heading: headingAt(s.lat, s.lon, 0),
+    });
+    const found = lineFromSession(withLaps)!;
+    expect(found.lat).toBeCloseTo(LAT, 4);
+    expect(found.source).toBe("session");
+    expect(lineFromSession(s)).toBeNull();
+    const scattered = {
+      ...withLaps,
+      laps: withLaps.laps.map((l, i) => ({ ...l, start: l.start + i * 2500 })),
+    };
+    expect(lineFromSession(scattered)).toBeNull();
+  });
+  it("joins a known track and its finish line, or keeps a line placed by hand", () => {
+    const base = decodeVbo(build({ seconds: 300 }), "x.vbo", "known");
+    const known = {
+      ...applyLine(base, {
+        ...line,
+        heading: headingAt(base.lat, base.lon, 0),
+      }),
+      track: "Test Ring",
+      trackId: 42,
+    };
+    const fresh = decodeVbo(
+      build({ seconds: 300, startTod: 14 * 3600 }),
+      "dragylap_20260927_140000_Whatever.vbo",
+      "fresh",
+    );
+    const r = resolveVbo(fresh, [known]);
+    expect(r.track).toBe("Test Ring");
+    expect(r.trackId).toBe(42);
+    expect(r.line?.source).toBe("session");
+    expect(r.laps.length).toBeGreaterThanOrEqual(5);
+    // Nothing known: no laps, and a name of its own.
+    const alone = resolveVbo(fresh, []);
+    expect(alone.laps).toEqual([]);
+    expect(alone.track).toBe("Whatever");
+    // A line placed by hand survives importing the same file again.
+    const placed = applyLine(fresh, {
+      ...line,
+      heading: headingAt(fresh.lat, fresh.lon, 0),
+      source: "user",
+    });
+    expect(resolveVbo(fresh, [placed]).line?.source).toBe("user");
+    // Another track's session does not lend its line to a far away path.
+    const far = {
+      ...known,
+      lat: known.lat.map((v) => v + 1),
+      line: { ...known.line!, lat: known.line!.lat + 1 },
+    } as typeof known;
+    expect(resolveVbo(fresh, [far]).laps).toEqual([]);
+  });
+});
+
+// Real Dragy VBO and a real RaceChrono session of the same circuit, from APEX_FIXTURES.
+const REAL = {
+  vbo: "dragylap_20250418_165151_Salzburgring.vbo",
+  rcz: "session_20260418_163602_salzburgring.rcz",
+};
+const haveVbo =
+  !!fixtureDir && Object.values(REAL).every((n) => existsSync(fixture(n)));
+describe.skipIf(!haveVbo)("real Dragy VBO", () => {
+  const load = (name: string, id: string) => {
+    const bytes = readFileSync(fixture(name));
+    return name.endsWith(".vbo")
+      ? decodeVbo(bytes, name, id)
+      : decode(bytes, name, id);
+  };
+  const vbo = haveVbo ? load(REAL.vbo, "dragy") : (undefined as never);
+  const rcz = haveVbo ? load(REAL.rcz, "rcz") : (undefined as never);
+  it("reads the whole file", () => {
+    expect(vbo.times.length).toBe(23154);
+    expect(vbo.track).toBe("Salzburgring");
+    expect(vbo.start).toBe(Date.UTC(2025, 3, 18, 14, 51, 51, 700));
+    expect(vbo.end - vbo.start).toBeCloseTo(2315.7 * 1000, -1);
+    expect(vbo.lat[0]).toBeCloseTo(47.82368, 4);
+    expect(vbo.lon[0]).toBeCloseTo(13.17402, 4);
+    expect(
+      Math.max(...vbo.channels.find((c) => c.id === "speed")!.values),
+    ).toBeCloseTo(249.2, 1);
+    expect(vbo.laps).toEqual([]);
+  });
+  it("joins the RaceChrono session's track and cuts the same laps from its finish line", () => {
+    const r = resolveVbo(vbo, [rcz]);
+    expect(r.trackId).toBe(rcz.trackId);
+    expect(r.track).toBe("Salzburgring");
+    expect(r.line?.source).toBe("session");
+    expect(r.laps).toHaveLength(18);
+    const times = r.laps.map((l) => l.end - l.start);
+    expect(Math.min(...times)).toBeGreaterThan(94000);
+    expect(Math.min(...times)).toBeLessThan(94900);
+    // Slow laps are real: traffic and cool-down, not detection errors.
+    expect(Math.max(...times)).toBeLessThan(160000);
+    expect(
+      r.laps.every((l) => !l.issues.includes("GPS gap longer than 2 seconds")),
+    ).toBe(true);
+    console.log("VBO laps:", r.laps.length, "best", Math.min(...times) / 1000);
+  });
+  it("gives the same lap boundaries wherever a line within 25 m along the track is drawn", () => {
+    const base = resolveVbo(vbo, [rcz]);
+    const shifted = applyLine(vbo, {
+      ...base.line!,
+      lat: base.line!.lat + 0.00015,
+    });
+    const best = (x: typeof base) =>
+      Math.min(...x.laps.map((l) => l.end - l.start));
+    expect(Math.abs(best(shifted) - best(base))).toBeLessThan(50);
   });
 });

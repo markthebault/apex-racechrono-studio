@@ -13,6 +13,14 @@ export type Lap = {
   end: number;
   issues: string[];
 };
+// A start/finish line: where it is and which way the cars cross it, degrees from north.
+export type FinishLine = {
+  lat: number;
+  lon: number;
+  heading: number;
+  // From another session of the same track, or placed by hand.
+  source: "session" | "user";
+};
 export type Session = {
   id: string;
   filename: string;
@@ -28,6 +36,9 @@ export type Session = {
   channels: Channel[];
   laps: Lap[];
   unknown: string[];
+  // Formats that carry no laps (VBO) get them from a finish line.
+  format?: "rcz" | "vbo";
+  line?: FinishLine;
 };
 export type Trace = {
   id: string;

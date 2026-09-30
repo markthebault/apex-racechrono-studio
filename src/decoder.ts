@@ -1,6 +1,7 @@
 import { unzipSync, strFromU8 } from "fflate";
 import type { Session, Channel } from "./model";
 import { definitions } from "./model";
+import { flagLaps } from "./laps";
 export function decode(
   bytes: Uint8Array,
   filename: string,
@@ -140,25 +141,7 @@ export function decode(
       };
     },
   );
-  const durations = laps
-    .map((l: { start: number; end: number }) => l.end - l.start)
-    .sort((a: number, b: number) => a - b);
-  const median = durations[Math.floor((durations.length - 1) / 2)];
-  for (const l of laps) {
-    if (l.end - l.start > median * 1.8)
-      l.issues.push("Interrupted lap: unusually long duration");
-    if (l.start < times[0] || l.end > times[times.length - 1])
-      l.issues.push("Incomplete GPS coverage");
-    for (let i = 1; i < times.length; i++)
-      if (
-        times[i] >= l.start &&
-        times[i - 1] <= l.end &&
-        times[i] - times[i - 1] > 2000
-      ) {
-        l.issues.push("GPS gap longer than 2 seconds");
-        break;
-      }
-  }
+  flagLaps(laps, times);
   return {
     id,
     filename,

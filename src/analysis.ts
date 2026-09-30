@@ -58,9 +58,10 @@ export function trace(s: Session, l: Lap): Trace {
     );
   if (channels.speed)
     channels.acceleration = Float64Array.from(times, (_, i) => {
-      const j = Math.max(0, i - 6),
-        k = Math.min(times.length - 1, i + 6);
-      return times[k] - times[j] > 2000
+      // Speed change over about half a second centred on the sample, whatever the log rate.
+      const j = Math.min(i, lower(times, times[i] - 250)),
+        k = Math.max(i, lower(times, times[i] + 250 + 1e-6) - 1);
+      return times[k] - times[j] > 2000 || k === j
         ? NaN
         : (channels.speed[k] - channels.speed[j]) /
             3.6 /

@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-- `npm test`: 51 tests passed with the private recordings available, 35 passed and 11 skipped without them.
+- `npm test`: 94 tests pass with the private recordings available; the tests that need them are skipped without.
 - `npm run build`: TypeScript and Vite production build passed.
 - `npm audit --omit=dev`: no vulnerabilities reported.
 - `node --check dist/sw.js`: generated service worker passed syntax validation.

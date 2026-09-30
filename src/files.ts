@@ -2,7 +2,7 @@ export type FileKind = "session" | "project" | "sync" | "video" | "unsupported";
 // What a dropped or chosen file is, judged by its name.
 export function classifyFile(name: string): FileKind {
   const n = name.toLowerCase();
-  if (n.endsWith(".rcz")) return "session";
+  if (n.endsWith(".rcz") || n.endsWith(".vbo")) return "session";
   if (n.endsWith(".zip")) return "project";
   if (n.endsWith(".json")) return "sync";
   if (/\.(mp4|m4v|mov|webm|mkv|avi)$/.test(n)) return "video";

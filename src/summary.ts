@@ -19,7 +19,10 @@ const isInterrupted = (issues: string[]) =>
 export function summarize(s: Session): Summary {
   const ms = (l: { start: number; end: number }) => l.end - l.start;
   const counted = s.laps.filter((l) => !isInterrupted(l.issues));
-  const bestMs = Math.min(...(counted.length ? counted : s.laps).map(ms));
+  // A session without laps yet has no best lap.
+  const bestMs = s.laps.length
+    ? Math.min(...(counted.length ? counted : s.laps).map(ms))
+    : NaN;
   const behind = counted.map((l) => ms(l) - bestMs);
   const widest = Math.max(0, ...behind);
   const rows = s.laps.map((l) => {
