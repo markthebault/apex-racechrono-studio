@@ -98,6 +98,20 @@ export const definitions: Record<string, { name: string; unit: string }> = {
   heading: { name: "Heading", unit: "°" },
   satellites: { name: "Satellites", unit: "" },
   acceleration: { name: "Longitudinal acceleration · calculated", unit: "g" },
+  // Display aliases keep existing VBO channel IDs and raw units unchanged.
+  "Raw column rpm-obd": { name: "Engine RPM · OBD", unit: "raw" },
+  "Raw column speed-obd": { name: "OBD speed", unit: "raw" },
+  "Raw column acceleration-obd": { name: "OBD acceleration", unit: "raw" },
+  "Raw column coolant_temp-obd": {
+    name: "Coolant temperature · OBD",
+    unit: "raw",
+  },
+  "Raw column engine_oil_temp-obd": {
+    name: "Engine oil temperature · OBD",
+    unit: "raw",
+  },
+  "Raw column intake_temp-obd": { name: "Intake temperature · OBD", unit: "raw" },
+  "Raw column engine_load-obd": { name: "Engine load · OBD", unit: "raw" },
 };
 export const lapTime = (ms: number) =>
   !Number.isFinite(ms)
