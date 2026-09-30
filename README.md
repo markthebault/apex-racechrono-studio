@@ -2,6 +2,10 @@
 
 A local browser workspace for RaceChrono sessions, GPS traces, cross-session lap comparisons, customizable telemetry charts, sector-based theoretical laps, and synchronized local videos.
 
+![Nordschleife BTG in Apex: the fastest recorded lap compared with another lap on a 3D elevation trace, with speed colours, braking zones and telemetry.](docs/images/nordschleife-3d.png)
+
+*Recorded Nordschleife BTG laps, shown with speed colours, estimated braking zones and 2× elevation. GPS gaps remain visible.*
+
 ## Run
 
 ```sh
