@@ -207,11 +207,12 @@ export async function exportProject(settings: Settings, sync: SyncFile) {
         sessions: records.map((r) => ({
           id: r.session.id,
           filename: r.session.filename,
-          ...(r.session.format === "vbo"
+          ...(r.session.format === "vbo" || r.session.trackEdited
             ? {
                 track: r.session.track,
                 trackId: r.session.trackId,
                 line: r.session.line,
+                trackEdited: r.session.trackEdited,
               }
             : {}),
         })),
@@ -253,19 +254,16 @@ export async function readProject(file: File) {
     const f = new File([bytes as BlobPart], entry.filename);
     let session = await work<Session>("decode", { file: f });
     if (session.id !== entry.id) throw Error("Project session hash mismatch.");
-    // A VBO carries no laps, so its track and finish line travel in the manifest.
-    if (session.format === "vbo" && entry.line) {
-      session = applyLine(
-        {
-          ...session,
-          track: String(entry.track ?? session.track),
-          trackId: Number.isFinite(entry.trackId)
-            ? entry.trackId
-            : session.trackId,
-        },
-        entry.line,
-      );
-    }
+    // A VBO carries no laps, and a track can be chosen by hand, so both travel in the manifest.
+    if (entry.track !== undefined && Number.isFinite(entry.trackId))
+      session = {
+        ...session,
+        track: String(entry.track),
+        trackId: entry.trackId,
+        ...(entry.trackEdited ? { trackEdited: true } : {}),
+      };
+    if (session.format === "vbo" && entry.line)
+      session = applyLine(session, entry.line);
     records.push({ session, file: f });
   }
   return { manifest, records };

@@ -2088,3 +2088,49 @@ button.collection-name:focus-visible {
   font-size: 18px;
   text-shadow: 0 0 4px #000;
 }
+
+.track-chooser {
+  width: min(520px, 100%);
+}
+.track-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+  max-height: 46vh;
+  overflow: auto;
+}
+.track-options label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #2f383e;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.track-options label.on {
+  border-color: #63e5d2;
+  background: #63e5d212;
+}
+.track-options label span {
+  flex: 1;
+}
+.track-options label em {
+  font-style: normal;
+  font-size: 11px;
+  color: #63e5d2;
+  margin-left: 6px;
+}
+.track-options label small {
+  color: #8d9aa4;
+}
+.track-options .new-track {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 14px;
+  outline: none;
+}

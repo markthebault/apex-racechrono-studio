@@ -60,6 +60,8 @@ import { summarize } from "./summary";
 import { classifyFile, describeImport } from "./files";
 import { applyLine, reconcileVbo, resolveVbo } from "./vboImport";
 import { LineEditor } from "./LineEditor";
+import { TrackChooser } from "./TrackChooser";
+import { assignTrack, knownTracks } from "./tracks";
 import {
   groupSessions,
   isSelected,
@@ -115,6 +117,7 @@ export default function App() {
     [summaryId, setSummaryId] = useState<string | null>(null),
     [reviewId, setReviewId] = useState<string | null>(null),
     [lineFor, setLineFor] = useState<string | null>(null),
+    [trackFor, setTrackFor] = useState<string | null>(null),
     // Exact lap A time in ms. Position alone cannot say when, because a stop repeats it.
     [exact, setExact] = useState<number | null>(null),
     [oppDay, setOppDay] = useState<string>(),
@@ -617,15 +620,27 @@ export default function App() {
           );
           // A VBO has no laps of its own. They come from a finish line already known for
           // the same track, which also decides which track the session belongs to.
+          // Importing a file again must not undo a track chosen by hand.
+          const prior = sessionsRef.current.find(
+            (x) => x.id === decoded.id && x.trackEdited,
+          );
+          const kept: Session = prior
+            ? {
+                ...decoded,
+                track: prior.track,
+                trackId: prior.trackId,
+                trackEdited: true,
+              }
+            : decoded;
           const s =
-            decoded.format === "vbo"
-              ? resolveVbo(decoded, [
+            kept.format === "vbo"
+              ? resolveVbo(kept, [
                   ...sessionsRef.current,
                   ...added.filter(
                     (x) => !sessionsRef.current.some((o) => o.id === x.id),
                   ),
                 ])
-              : decoded;
+              : kept;
           await saveSession(s, file);
           if (sessionsRef.current.some((x) => x.id === s.id)) alreadyThere++;
           else added.push(s);
@@ -1637,6 +1652,12 @@ export default function App() {
                               </label>
                               <button
                                 className="card-summary"
+                                onClick={() => setTrackFor(s.id)}
+                              >
+                                Change track
+                              </button>
+                              <button
+                                className="card-summary"
                                 disabled={!s.laps.length}
                                 onClick={() => setSummaryId(s.id)}
                               >
@@ -2068,6 +2089,36 @@ export default function App() {
           </button>
         </footer>
       </main>
+      {trackFor && sessions.find((x) => x.id === trackFor) && (
+        <TrackChooser
+          session={sessions.find((x) => x.id === trackFor)!}
+          tracks={knownTracks(sessions)}
+          onClose={() => setTrackFor(null)}
+          onApply={async (choice) => {
+            const current = sessions.find((x) => x.id === trackFor)!;
+            try {
+              const updated = assignTrack(
+                current,
+                sessions.filter((x) => x.id !== current.id),
+                choice,
+              );
+              await updateSession(updated);
+              setSessions((old) =>
+                old.map((x) => (x.id === updated.id ? updated : x)),
+              );
+              setStatus(
+                `${current.filename} is now on ${updated.track}.` +
+                  (updated.format === "vbo" && !updated.laps.length
+                    ? " It has no laps yet, so place its start/finish line."
+                    : ""),
+              );
+              setTrackFor(null);
+            } catch (e) {
+              report(e);
+            }
+          }}
+        />
+      )}
       {lineFor && sessions.find((x) => x.id === lineFor) && (
         <LineEditor
           session={sessions.find((x) => x.id === lineFor)!}

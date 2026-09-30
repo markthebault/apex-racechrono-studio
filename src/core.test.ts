@@ -39,6 +39,7 @@ import { hoverBus } from "./hover";
 import { decodeVbo, trackFromFilename, trackIdFromName } from "./vbo";
 import { crossings, lapsFromLine, lineFromSession, headingAt } from "./laps";
 import { applyLine, resolveVbo, reconcileVbo } from "./vboImport";
+import { assignTrack, knownTracks } from "./tracks";
 import { fingerprintOf } from "./fingerprint";
 import { readCreationTime, matchVideoStart } from "./mp4";
 import { parseLapTime } from "./model";
@@ -1511,5 +1512,163 @@ describe.skipIf(!haveVbo)("real Dragy VBO", () => {
     const best = (x: typeof base) =>
       Math.min(...x.laps.map((l) => l.end - l.start));
     expect(Math.abs(best(shifted) - best(base))).toBeLessThan(50);
+  });
+});
+
+describe("choosing a track by hand", () => {
+  const mk = (
+    id: string,
+    track: string,
+    trackId: number,
+    format: "rcz" | "vbo" = "rcz",
+  ): Session =>
+    ({
+      id,
+      track,
+      trackId,
+      format,
+      laps: [],
+      times: new Float64Array(0),
+      lat: new Float64Array(0),
+      lon: new Float64Array(0),
+    }) as unknown as Session;
+  it("lists the tracks in use with how many sessions each has", () => {
+    const list = knownTracks([
+      mk("a", "Spa", 1),
+      mk("b", "Monza", 2),
+      mk("c", "Spa", 1),
+    ]);
+    expect(list).toEqual([
+      { trackId: 2, name: "Monza", sessions: 1 },
+      { trackId: 1, name: "Spa", sessions: 2 },
+    ]);
+  });
+  it("moves a session to an existing track, or a new one, and marks it as chosen", () => {
+    const spa = mk("a", "Spa", 1),
+      monza = mk("b", "Monza", 2),
+      me = mk("c", "Wrong", 3);
+    const toMonza = assignTrack(me, [spa, monza], { trackId: 2 });
+    expect([toMonza.track, toMonza.trackId, toMonza.trackEdited]).toEqual([
+      "Monza",
+      2,
+      true,
+    ]);
+    const same = assignTrack(me, [spa, monza], { name: "  spa " });
+    expect([same.track, same.trackId]).toEqual(["Spa", 1]);
+    const fresh = assignTrack(me, [spa, monza], { name: "Red Bull Ring" });
+    expect(fresh.track).toBe("Red Bull Ring");
+    expect(fresh.trackId).toBeLessThan(0);
+    expect(assignTrack(me, [spa], { name: "red bull ring" }).trackId).toBe(
+      fresh.trackId,
+    );
+  });
+  it("refuses an empty name or a track that is gone", () => {
+    const me = mk("c", "Wrong", 3);
+    expect(() => assignTrack(me, [], { name: "   " })).toThrow("name");
+    expect(() => assignTrack(me, [mk("a", "Spa", 1)], { trackId: 99 })).toThrow(
+      "no longer",
+    );
+  });
+  it("keeps a RaceChrono session's laps when it moves", () => {
+    const me = {
+      ...mk("c", "Wrong", 3),
+      laps: [{ id: "c:1", number: 1, start: 0, end: 5, issues: [] }],
+    };
+    expect(
+      assignTrack(me, [mk("a", "Spa", 1)], { trackId: 1 }).laps,
+    ).toHaveLength(1);
+  });
+  const ring = (id: string) => decodeVbo(build2(), "x_Ring.vbo", id);
+  // The circle from the VBO tests, rebuilt here so this block stands alone.
+  function build2() {
+    const K2 = 6371000 * (Math.PI / 180);
+    const rows: string[] = [];
+    for (let i = 0; i < 3000; i++) {
+      const a = (i / 10) * (40 / 300);
+      const lat = 47.8 + (300 * Math.sin(a)) / K2,
+        lon =
+          13.17 +
+          (300 * (Math.cos(a) - 1)) / (K2 * Math.cos(47.8 * (Math.PI / 180)));
+      const tod = 12 * 3600 + i / 10;
+      const hms = `${String(Math.floor(tod / 3600)).padStart(2, "0")}${String(Math.floor((tod % 3600) / 60)).padStart(2, "0")}${(tod % 60).toFixed(3).padStart(6, "0")}`;
+      rows.push(
+        `010 ${hms} ${(lat * 60).toFixed(6)} ${(-lon * 60).toFixed(6)} 144.000 0.00 500.00`,
+      );
+    }
+    return new TextEncoder().encode(
+      [
+        "File created on 27/09/2026 @ 12:00",
+        "[header]",
+        "satellites",
+        "time",
+        "latitude",
+        "longitude",
+        "velocity kmh",
+        "heading",
+        "height",
+        "",
+        "[comments]",
+        "UTC Date Started: 27/09/2026 12:00",
+        "[column names]",
+        "sats time lat long velocity heading height",
+        "[data]",
+        ...rows,
+      ].join("\n"),
+    );
+  }
+  it("re-cuts a VBO from the new track's finish line, or clears the laps when there is none", () => {
+    const vbo = ring("v");
+    const start = {
+      lat: 47.8,
+      lon: 13.17,
+      heading: headingAt(vbo.lat, vbo.lon, 0),
+      source: "user" as const,
+    };
+    const mine = applyLine(vbo, start);
+    expect(mine.laps.length).toBeGreaterThan(3);
+    const known = { ...applyLine(ring("k"), start), track: "Ring", trackId: 5 };
+    const moved = assignTrack(
+      { ...mine, track: "Other", trackId: -9 },
+      [known],
+      { trackId: 5 },
+    );
+    expect(moved.trackId).toBe(5);
+    expect(moved.line?.source).toBe("session");
+    expect(moved.laps.length).toBe(mine.laps.length);
+    // A track with no known line: the laps go and the session waits for a line.
+    const lonely = assignTrack(mine, [mk("z", "Elsewhere", 8)], { trackId: 8 });
+    expect(lonely.laps).toEqual([]);
+    expect(lonely.line).toBeUndefined();
+    expect(lonely.trackEdited).toBe(true);
+  });
+  it("is left alone by automatic matching, including when the file is imported again", () => {
+    const vbo = ring("v");
+    const start = {
+      lat: 47.8,
+      lon: 13.17,
+      heading: headingAt(vbo.lat, vbo.lon, 0),
+      source: "user" as const,
+    };
+    const rc = {
+      ...applyLine(ring("k"), start),
+      id: "rc",
+      format: "rcz" as const,
+      track: "Ring",
+      trackId: 5,
+    };
+    const chosen = assignTrack(vbo, [mk("z", "Elsewhere", 8)], { trackId: 8 });
+    expect(reconcileVbo([chosen, rc])).toEqual([chosen, rc]);
+    // Importing the file again keeps the chosen track and does not borrow rc's line.
+    const again = resolveVbo(
+      {
+        ...ring("v"),
+        track: chosen.track,
+        trackId: chosen.trackId,
+        trackEdited: true,
+      },
+      [chosen, rc],
+    );
+    expect(again.trackId).toBe(8);
+    expect(again.laps).toEqual([]);
   });
 });

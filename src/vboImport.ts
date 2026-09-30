@@ -17,6 +17,11 @@ export function applyLine(s: Session, line: FinishLine): Session {
 // - otherwise a session of a track with the same name only lends its identity, and the
 //   laps stay empty until a line is placed.
 export function resolveVbo(s: Session, known: Session[]): Session {
+  // A track chosen by hand stays; only the line it already had is put back.
+  if (s.trackEdited) {
+    const line = known.find((k) => k.id === s.id)?.line;
+    return line ? applyLine(s, line) : s;
+  }
   const before = known.find((k) => k.id === s.id && k.line);
   if (before?.line)
     return applyLine(
@@ -54,7 +59,7 @@ export function resolveVbo(s: Session, known: Session[]): Session {
 export function reconcileVbo(sessions: Session[]): Session[] {
   let changed = false;
   const out = sessions.map((s) => {
-    if (s.format !== "vbo") return s;
+    if (s.format !== "vbo" || s.trackEdited) return s;
     const others = sessions.filter((o) => o.id !== s.id);
     let next = s;
     const named = others.find(

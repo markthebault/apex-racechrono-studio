@@ -39,6 +39,8 @@ export type Session = {
   // Formats that carry no laps (VBO) get them from a finish line.
   format?: "rcz" | "vbo";
   line?: FinishLine;
+  // The track was chosen by hand, so automatic matching must not change it.
+  trackEdited?: boolean;
 };
 export type Trace = {
   id: string;
