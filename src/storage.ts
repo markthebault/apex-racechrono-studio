@@ -193,6 +193,16 @@ export function validateSync(v: any): SyncFile {
         c.start < end
       )
         throw Error("Invalid or overlapping video clips.");
+      if (
+        c.motion &&
+        (!["none", "gopro"].includes(c.motion.camera) ||
+          !Number.isInteger(c.motion.axis) ||
+          c.motion.axis < 0 ||
+          c.motion.axis > 2 ||
+          typeof c.motion.invert !== "boolean" ||
+          !Number.isFinite(c.motion.baseline))
+      )
+        throw Error("Invalid camera telemetry settings.");
       end = c.start + c.duration;
     }
     for (const a of b.anchors)
@@ -222,6 +232,16 @@ export function validateSync(v: any): SyncFile {
         ...identityOnly(c),
         duration: c.duration,
         start: c.start,
+        ...(c.motion
+          ? {
+              motion: {
+                camera: c.motion.camera,
+                axis: c.motion.axis,
+                invert: c.motion.invert,
+                baseline: c.motion.baseline,
+              },
+            }
+          : {}),
       })),
       anchors: b.anchors.map((a: any) => ({
         videoSeconds: a.videoSeconds,
