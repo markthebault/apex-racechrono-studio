@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Volume2, VolumeX } from "lucide-react";
+import { VideoMotionSync } from "./VideoMotionSync";
 import { ClockInput } from "./ClockInput";
 import { lapTime } from "./model";
 import type { Binding, Identity, Session } from "./model";
@@ -82,6 +83,7 @@ export function VideoPanel({
     // Lap A carries the sound. Lap B starts muted so two videos do not talk over each other.
     [muted, setMuted] = useState(label !== "LAP A");
   const [seek, setSeek] = useState(0);
+  const [sourceFiles, setSourceFiles] = useState<Record<string, File>>({});
   const vt = binding ? videoTime(binding, stamp) : NaN;
   const active =
     binding?.clips.findIndex(
@@ -154,6 +156,7 @@ export function VideoPanel({
       list = ordered.map((x) => x.file);
       handles = handles ? ordered.map((x) => x.handle) : undefined;
       const urls = { ...files };
+      const sources = { ...sourceFiles };
       for (let i = 0; i < list.length; i++) {
         const f = list[i];
         // A file seen before is recognised from a 2 MB fingerprint instead of being read
@@ -207,6 +210,7 @@ export function VideoPanel({
         if (!Number.isFinite(duration) || duration <= 0)
           throw Error("Video has no valid duration.");
         urls[identity.sha256] = objectUrl;
+        sources[identity.sha256] = f;
         if (handles?.[i]) await saveHandle(identity.sha256, handles[i]);
         if (!match)
           clips.push({
@@ -218,6 +222,7 @@ export function VideoPanel({
           });
       }
       setFiles(urls);
+      setSourceFiles(sources);
       // A first clip is placed on the telemetry clock from the time recorded in the file,
       // when that time falls inside this session.
       let anchors = base?.anchors ?? [];
@@ -615,6 +620,61 @@ export function VideoPanel({
                     ({formatClockTenths(confirm.wall)}).
                   </span>
                 </div>
+              )}
+              {binding.clips.length > 1 && (
+                <label>
+                  Clip to synchronize{" "}
+                  <select
+                    aria-label="Telemetry clip"
+                    value={selected}
+                    onChange={(e) => setSelected(+e.target.value)}
+                  >
+                    {binding.clips.map((c, i) => (
+                      <option value={i} key={c.sha256}>
+                        {i + 1}. {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {session && clip && (
+                <VideoMotionSync
+                  key={clip.sha256}
+                  session={session}
+                  clip={clip}
+                  file={sourceFiles[clip.sha256]}
+                  stamp={stamp}
+                  seek={seek}
+                  sessionFrom={lapStart ?? session.start}
+                  sessionTo={
+                    lapStart !== undefined && lapDuration !== undefined
+                      ? lapStart + lapDuration
+                      : session.end
+                  }
+                  onGoTo={
+                    onGoTo
+                      ? (t) => {
+                          onPause();
+                          onGoTo(t);
+                        }
+                      : undefined
+                  }
+                  onSeek={(t) => {
+                    if (video.current) {
+                      video.current.pause();
+                      video.current.currentTime = t;
+                      setSeek(t);
+                    }
+                  }}
+                  onConfig={(motion) =>
+                    onBinding({
+                      ...binding,
+                      clips: binding.clips.map((c) =>
+                        c.sha256 === clip.sha256 ? { ...c, motion } : c,
+                      ),
+                    })
+                  }
+                />
               )}
               <ol className="sync-flow">
                 <li>
