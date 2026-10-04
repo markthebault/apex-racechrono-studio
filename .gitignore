@@ -6,3 +6,6 @@ evidence/
 *.tsbuildinfo
 .env.local
 .env.deploy
+.env
+.env.*
+!.env.example

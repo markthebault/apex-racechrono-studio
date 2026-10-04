@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "catalog": "node scripts/catalog.mjs",
-    "deploy": "sh scripts/deploy.sh"
+    "deploy": "sh scripts/deploy.sh",
+    "deploy:pages": "node scripts/deploy-pages.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",
