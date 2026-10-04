@@ -18,6 +18,8 @@ export type CameraMotion = {
   gps?: GpsSample[];
   model?: string;
   warnings?: string[];
+  schema?: string;
+  orientationSamples?: number;
 };
 const ascii = (b: Uint8Array) => new TextDecoder().decode(b).replace(/\0/g, "");
 type Box = { type: string; at: number; end: number };

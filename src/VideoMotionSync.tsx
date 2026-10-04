@@ -3,15 +3,13 @@ import { proposeGpsClock, proposeGpsRoute } from "./videoGpsSync";
 import type { GpsProposal } from "./videoGpsSync";
 import { formatWallClock } from "./wallclock";
 import type { Clip, Session } from "./model";
-import {
-  cameraAcceleration,
-  readGoProMotion,
-  sessionAcceleration,
-} from "./videoTelemetry";
+import { cameraAcceleration, sessionAcceleration } from "./videoTelemetry";
 import type { CameraMotion, GraphPoint } from "./videoTelemetry";
 import "./videoMotionSync.css";
+import { cameraFormats, readCameraTelemetry } from "./cameraTelemetry";
+import type { CameraFormat } from "./cameraTelemetry";
 export type MotionConfig = {
-  camera: "none" | "gopro";
+  camera: CameraFormat;
   axis: number;
   invert: boolean;
   baseline: number;
@@ -22,10 +20,6 @@ const defaults: MotionConfig = {
   invert: false,
   baseline: 0,
 };
-const cameras = [
-  { id: "none", name: "No camera telemetry" },
-  { id: "gopro", name: "GoPro · embedded GPMF" },
-] as const;
 function MotionGraph({
   points,
   cursor,
@@ -157,10 +151,10 @@ export function VideoMotionSync({
     setGpsError("");
     setError("");
     setLoading(false);
-    if (config.camera !== "gopro" || !file) return;
+    if (config.camera === "none" || !file) return;
     const abort = new AbortController();
     setLoading(true);
-    readGoProMotion(file, abort.signal)
+    readCameraTelemetry(file, config.camera, abort.signal)
       .then((data) => {
         if (!abort.signal.aborted) setMotion(data);
       })
@@ -199,11 +193,13 @@ export function VideoMotionSync({
           ? "Align a braking event"
           : "Align using camera GPS"}
       </h4>
-      <p>
-        Pick the same negative acceleration dip in each graph, then press Sync
-        here below. Deceleration indicates slowing down; it does not measure
-        brake pedal pressure.
-      </p>
+      {method === "braking" && (
+        <p>
+          Pick the same negative acceleration dip in each graph, then press Sync
+          here below. Deceleration indicates slowing down; it does not measure
+          brake pedal pressure.
+        </p>
+      )}
       <div className="motion-controls">
         <label>
           Synchronize by{" "}
@@ -227,31 +223,38 @@ export function VideoMotionSync({
             aria-label="Camera telemetry format"
             value={config.camera}
             onChange={(e) =>
-              change({ camera: e.target.value as MotionConfig["camera"] })
+              change({
+                camera: e.target.value as MotionConfig["camera"],
+                axis: ["dji", "insta360"].includes(e.target.value) ? 1 : 2,
+                baseline: 0,
+                invert: false,
+              })
             }
           >
-            {cameras.map((c) => (
+            {cameraFormats.map((c) => (
               <option value={c.id} key={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
         </label>
-        <label>
-          Graph window{" "}
-          <select
-            aria-label="Acceleration graph window"
-            value={windowSeconds}
-            onChange={(e) => setWindow(+e.target.value)}
-          >
-            {[10, 20, 60, 120].map((n) => (
-              <option key={n} value={n}>
-                {n} seconds
-              </option>
-            ))}
-          </select>
-        </label>
-        {config.camera === "gopro" && (
+        {method === "braking" && (
+          <label>
+            Graph window{" "}
+            <select
+              aria-label="Acceleration graph window"
+              value={windowSeconds}
+              onChange={(e) => setWindow(+e.target.value)}
+            >
+              {[10, 20, 60, 120].map((n) => (
+                <option key={n} value={n}>
+                  {n} seconds
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {config.camera !== "none" && method === "braking" && (
           <>
             <label>
               Forward axis{" "}
@@ -300,7 +303,7 @@ export function VideoMotionSync({
           </>
         )}
       </div>
-      {config.camera === "gopro" && (
+      {config.camera !== "none" && method === "braking" && (
         <p className="muted">
           Choose the axis showing forward acceleration. If braking points
           upward, invert it. Zero on a stationary or steady-speed section to
@@ -314,17 +317,29 @@ export function VideoMotionSync({
           {error}
         </p>
       )}
-      {config.camera === "gopro" && !file && (
+      {config.camera !== "none" && !file && (
         <p>Reload this video to read its embedded telemetry.</p>
       )}
       {motion && (
         <p role="status">
+          {motion.model && (
+            <>
+              <b>{motion.model}</b> ·{" "}
+            </>
+          )}
           {motion.acceleration.length.toLocaleString()} acceleration samples ·{" "}
           {motion.gyro.length.toLocaleString()} gyro samples. Gyro measures
           rotation; the graph uses the accelerometer.
+          {!!motion.orientationSamples &&
+            ` ${motion.orientationSamples.toLocaleString()} orientation samples.`}
         </p>
       )}
-      {motion && !motion.acceleration.length && (
+      {motion?.warnings?.map((w) => (
+        <p key={w} className="muted">
+          {w}
+        </p>
+      ))}
+      {method === "braking" && motion && !motion.acceleration.length && (
         <p>
           No accelerometer samples. Gyro-only data cannot supply a braking
           G-force graph.
@@ -455,7 +470,8 @@ export function VideoMotionSync({
             </label>
             {config.camera === "none" && (
               <small>
-                Select GoPro to load acceleration from this clip's original MP4.
+                Choose the camera to load telemetry from this clip’s original
+                recording.
               </small>
             )}
           </div>

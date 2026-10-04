@@ -5,7 +5,7 @@ export function classifyFile(name: string): FileKind {
   if (n.endsWith(".rcz") || n.endsWith(".vbo")) return "session";
   if (n.endsWith(".zip")) return "project";
   if (n.endsWith(".json")) return "sync";
-  if (/\.(mp4|m4v|mov|webm|mkv|avi)$/.test(n)) return "video";
+  if (/\.(mp4|m4v|mov|webm|mkv|avi|insv|osv)$/.test(n)) return "video";
   return "unsupported";
 }
 export type ImportedSession = {
