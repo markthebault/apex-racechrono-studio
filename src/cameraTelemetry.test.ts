@@ -4,8 +4,15 @@ import {
   readDjiMotion,
   readInsta360Motion,
   parseDjiPacket,
+  readCammMotion,
 } from "./cameraTelemetry";
-import { djiMp4, djiPayload, instaTrailer } from "./cameraTelemetry.fixture";
+import {
+  djiMp4,
+  djiPayload,
+  instaTrailer,
+  metadataTrack,
+} from "./cameraTelemetry.fixture";
+import { join, box } from "./videoTelemetry.fixture";
 import { fakeMotionMp4 } from "./videoTelemetry.fixture";
 import { protobuf } from "./protobuf";
 import type { CameraMotion } from "./videoTelemetry";
@@ -61,6 +68,70 @@ describe("multi-camera telemetry", () => {
         (await readCameraTelemetry(blob(bytes), "auto")).acceleration.length,
       ).toBeGreaterThan(0);
     }
+  });
+  it("reads CAMM gyro, acceleration units and GPS with recorded presentation times", async () => {
+    const packet = (type: number, length: number) => {
+      const b = new Uint8Array(length),
+        d = new DataView(b.buffer);
+      d.setUint16(2, type, true);
+      return { b, d };
+    };
+    const acc = packet(3, 16);
+    acc.d.setFloat32(4, 9.80665, true);
+    acc.d.setFloat32(12, -4.903325, true);
+    const gyro = packet(2, 16);
+    gyro.d.setFloat32(8, 0.5, true);
+    const gps = packet(6, 60);
+    gps.d.setFloat64(4, 123456, true);
+    gps.d.setInt32(12, 3, true);
+    gps.d.setFloat64(16, 50, true);
+    gps.d.setFloat64(24, 6, true);
+    const packets = [acc.b, gyro.b, gps.b];
+    const bytes = join(
+      box("mdat", join(...packets)),
+      box("moov", metadataTrack("camm", packets, 8)),
+    );
+    for (const camera of ["auto", "insta360"] as const) {
+      const data = await readCameraTelemetry(blob(bytes), camera);
+      expect(data.acceleration[0].v).toEqual([
+        expect.closeTo(1, 5),
+        0,
+        expect.closeTo(-0.5, 5),
+      ]);
+      expect(data.gyro[0]).toEqual({ t: 1, v: [0, 0.5, 0] });
+      expect(data.gps?.[0]).toMatchObject({ t: 2, lat: 50, lon: 6, fix: 3 });
+      expect(data.gps?.[0].utc).toBeUndefined();
+    }
+    const bad = join(
+      box("mdat", new Uint8Array([0, 0, 3, 0, 0])),
+      box("moov", metadataTrack("camm", [new Uint8Array(5)], 8)),
+    );
+    await expect(readCammMotion(blob(bad))).rejects.toThrow(/Truncated CAMM/);
+  });
+  it("reads ten minutes of high-rate CAMM without individual sample reads", async () => {
+    const packet = new Uint8Array(16),
+      d = new DataView(packet.buffer);
+    d.setUint16(2, 3, true);
+    d.setFloat32(4, 9.80665, true);
+    const packets = Array.from({ length: 120000 }, () => packet);
+    const payload = new Uint8Array(packets.length * packet.length);
+    packets.forEach((p, i) => payload.set(p, i * p.length));
+    const file = blob(
+      join(
+        box("mdat", payload),
+        box("moov", metadataTrack("camm", packets, 8, 5)),
+      ),
+    );
+    let reads = 0;
+    const slice = file.slice.bind(file);
+    file.slice = (...args) => {
+      reads++;
+      return slice(...args);
+    };
+    const data = await readCammMotion(file);
+    expect(data.acceleration).toHaveLength(120000);
+    expect(data.acceleration.at(-1)?.t).toBeCloseTo(599.995, 3);
+    expect(reads).toBeLessThan(20);
   });
   it("rejects malformed protobuf and honours cancellation", async () => {
     expect(() => protobuf(new Uint8Array([10, 255]))).toThrow();

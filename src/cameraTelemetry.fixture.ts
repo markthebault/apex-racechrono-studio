@@ -65,23 +65,28 @@ export function metadataTrack(
   codec: string,
   packets: Uint8Array[],
   offset: number,
+  delta = 1000,
 ) {
+  const sizes = new Uint8Array(packets.length * 4),
+    view = new DataView(sizes.buffer);
+  packets.forEach((p, i) => view.setUint32(i * 4, p.length));
   return box(
     "trak",
     box(
       "mdia",
-      box("mdhd", u32(0, 0, 0, 1000, packets.length * 1000), new Uint8Array(4)),
+      box(
+        "mdhd",
+        u32(0, 0, 0, 1000, packets.length * delta),
+        new Uint8Array(4),
+      ),
       box(
         "minf",
         box(
           "stbl",
           box("stsd", u32(0, 1), box(codec, new Uint8Array(8))),
-          box("stts", u32(0, 1, packets.length, 1000)),
+          box("stts", u32(0, 1, packets.length, delta)),
           box("stsc", u32(0, 1, 1, packets.length, 1)),
-          box(
-            "stsz",
-            u32(0, 0, packets.length, ...packets.map((p) => p.length)),
-          ),
+          box("stsz", u32(0, 0, packets.length), sizes),
           box("stco", u32(0, 1, offset)),
         ),
       ),
@@ -102,7 +107,7 @@ export function instaTrailer(raw = false, gpsTiming = true, retimed = false) {
     pstr(2, "Insta360 Synthetic"),
     pvar(24, first),
     pvar(62, +raw),
-    ...(gpsTiming ? [pvar(36, first + 500_000)] : []),
+    ...(gpsTiming ? [pvar(36, first + (raw ? 500_000_000 : 500_000))] : []),
   );
   const imu = new Uint8Array(240 * length),
     d = new DataView(imu.buffer);

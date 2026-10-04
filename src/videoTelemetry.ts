@@ -302,7 +302,7 @@ export async function readMetadataTrack(
           v.getInt16(18) !== 0
         )
           throw Error(
-            "Edited GoPro telemetry timeline is unsupported. Use the original MP4.",
+            "Edited camera telemetry timeline is unsupported. Use the original MP4.",
           );
       }
     }
@@ -329,7 +329,7 @@ export async function readMetadataTrack(
     const sz = table("stsz"),
       count = sz.getUint32(8),
       fixed = sz.getUint32(4);
-    if (count > 100000) throw Error("Too many telemetry packets.");
+    if (count > 2000000) throw Error("Too many telemetry packets.");
     const sizes = Array.from(
       { length: count },
       (_, i) => fixed || sz.getUint32(12 + i * 4),
@@ -369,24 +369,42 @@ export async function readMetadataTrack(
       let at = co64
         ? Number(offsets.getBigUint64(8 + (c - 1) * 8))
         : offsets.getUint32(8 + (c - 1) * 4);
-      for (let j = 0; j < entry.n; j++) {
+      if (sample + entry.n > count)
+        throw Error("Invalid telemetry chunk sample count.");
+      for (let j = 0; j < entry.n;) {
         check();
-        const size = sizes[sample];
-        if (
-          !size ||
-          at + size > file.size ||
-          size > 16 * 1024 * 1024 ||
-          (total += size) > 128 * 1024 * 1024
-        )
+        // Small CAMM/DJI samples share a contiguous chunk. Read bounded batches,
+        // rather than requesting hundreds of thousands of tiny Blob slices.
+        let n = 0,
+          length = 0;
+        while (j + n < entry.n) {
+          const size = sizes[sample + n];
+          if (!size || size > 16 * 1024 * 1024)
+            throw Error("Invalid or excessive telemetry payload.");
+          if (n && length + size > 8 * 1024 * 1024) break;
+          length += size;
+          n++;
+        }
+        if (at + length > file.size || (total += length) > 128 * 1024 * 1024)
           throw Error("Invalid or excessive telemetry payload.");
-        await onPacket(
-          new Uint8Array(await file.slice(at, at + size).arrayBuffer()),
-          t,
-          durations[sample],
-          entries[entry.description - 1].type,
+        const bytes = new Uint8Array(
+          await file.slice(at, at + length).arrayBuffer(),
         );
-        t += durations[sample++];
-        at += size;
+        let offset = 0;
+        for (let k = 0; k < n; k++) {
+          check();
+          const size = sizes[sample];
+          await onPacket(
+            bytes.subarray(offset, offset + size),
+            t,
+            durations[sample],
+            entries[entry.description - 1].type,
+          );
+          t += durations[sample++];
+          offset += size;
+        }
+        at += length;
+        j += n;
       }
     }
     if (sample !== count) throw Error("Incomplete telemetry chunk map.");

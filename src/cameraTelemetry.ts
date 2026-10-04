@@ -131,20 +131,100 @@ export async function readDjiMotion(
 
 // Trailer layout and IMU units adapted from telemetry-parser (MIT), see THIRD_PARTY_NOTICES.md.
 export const instaMagic = "8db42d694ccc418790edff439fe026bf";
+// CAMM fields and units: https://developers.google.com/streetview/publish/camm-spec
+export async function readCammMotion(
+  file: Blob,
+  signal?: AbortSignal,
+): Promise<CameraMotion> {
+  const out: CameraMotion = {
+    acceleration: [],
+    gyro: [],
+    gps: [],
+    model: "CAMM camera metadata",
+    warnings: [],
+  };
+  await readMetadataTrack(
+    file,
+    ["camm"],
+    (bytes, t) => {
+      const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      if (bytes.length < 4 || d.getUint16(0, true) !== 0)
+        throw Error("Invalid CAMM metadata packet.");
+      const type = d.getUint16(2, true);
+      const lengths: Record<number, number> = {
+        0: 16,
+        1: 12,
+        2: 16,
+        3: 16,
+        4: 16,
+        5: 28,
+        6: 60,
+        7: 16,
+      };
+      if (lengths[type] !== undefined && bytes.length !== lengths[type])
+        throw Error("Truncated CAMM metadata packet.");
+      if (type === 2 || type === 3) {
+        const point = sample(
+          t,
+          [4, 8, 12].map(
+            (p) => d.getFloat32(p, true) / (type === 3 ? 9.80665 : 1),
+          ),
+        );
+        if (point) (type === 3 ? out.acceleration : out.gyro).push(point);
+      } else if (type === 0)
+        out.orientationSamples = (out.orientationSamples ?? 0) + 1;
+      else if (type === 5 || type === 6) {
+        const gps: GpsSample = {
+          t,
+          lat: d.getFloat64(type === 5 ? 4 : 16, true),
+          lon: d.getFloat64(type === 5 ? 12 : 24, true),
+          altitude:
+            type === 5 ? d.getFloat64(20, true) : d.getFloat32(32, true),
+          fix: type === 5 ? 2 : d.getInt32(12, true),
+          ...(type === 6
+            ? {
+                speed: Math.hypot(
+                  d.getFloat32(44, true),
+                  d.getFloat32(48, true),
+                ),
+              }
+            : {}),
+        };
+        if (validGps(gps)) out.gps!.push(gps);
+      }
+    },
+    signal,
+  );
+  if (out.gps!.length)
+    out.warnings!.push(
+      "CAMM GPS positions support route matching. GPS epoch timestamps are not treated as UTC; use GPS route matching or manual sync for this format.",
+    );
+  if (
+    !out.acceleration.length &&
+    !out.gyro.length &&
+    !out.gps!.length &&
+    !out.orientationSamples
+  )
+    throw Error("No usable motion or GPS in the CAMM track.");
+  return out;
+}
 export async function readInsta360Motion(
   file: Blob,
   signal?: AbortSignal,
 ): Promise<CameraMotion> {
-  if (file.size < 72)
-    throw Error(
-      "No Insta360 trailer. Choose the original MP4 or INSV recording.",
-    );
+  const camm = () =>
+    readCammMotion(file, signal).catch((error: Error) => {
+      if (error.message.startsWith("No camm telemetry track"))
+        throw Error(
+          "No Insta360 trailer or CAMM track. An app export may have removed telemetry; choose the original recording.",
+        );
+      throw error;
+    });
+  if (file.size < 72) return camm();
   const footer = new Uint8Array(await file.slice(-72).arrayBuffer());
   cancelled(signal);
   if (new TextDecoder().decode(footer.subarray(40)) !== instaMagic)
-    throw Error(
-      "No Insta360 trailer. An app export may have removed the telemetry; choose the original recording.",
-    );
+    return camm();
   const size = new DataView(footer.buffer).getUint32(32, true);
   if (size < 72 || size > file.size || size > 128 * 1024 * 1024)
     throw Error("Invalid or oversized Insta360 telemetry trailer.");
@@ -229,15 +309,24 @@ export async function readInsta360Motion(
       firstUtc ??= utc;
       if (firstGps === undefined) continue;
       const gps: GpsSample = {
-        t: (firstGps - first) / 1e6 + (utc - firstUtc) / 1000,
+        t: (firstGps - first) / (raw ? 1e9 : 1e6) + (utc - firstUtc) / 1000,
         utc,
-        lat: d.getFloat64(p + 11, true) * (bytes[p + 19] === 83 ? -1 : 1),
-        lon: d.getFloat64(p + 20, true) * (bytes[p + 28] === 87 ? -1 : 1),
+        lat:
+          Math.abs(d.getFloat64(p + 11, true)) *
+          (bytes[p + 19] === 83 ? -1 : 1),
+        lon:
+          Math.abs(d.getFloat64(p + 20, true)) *
+          ([79, 87].includes(bytes[p + 28]) ? -1 : 1),
         speed: d.getFloat64(p + 29, true),
         altitude: d.getFloat64(p + 45, true),
         fix: bytes[p + 10] === 65 ? 3 : 0,
       };
-      if (validGps(gps)) out.gps!.push(gps);
+      if (
+        validGps(gps) &&
+        [78, 83].includes(bytes[p + 19]) &&
+        [69, 79, 87].includes(bytes[p + 28])
+      )
+        out.gps!.push(gps);
     }
   }
   if (records.has(7) && firstGps === undefined)
@@ -266,12 +355,13 @@ export async function readCameraTelemetry(
   let codec = "";
   await readMetadataTrack(
     file,
-    ["gpmd", "djmd"],
+    ["gpmd", "djmd", "camm"],
     (_b, _t, _d, type) => {
       codec = type;
     },
     signal,
   );
+  if (codec === "camm") return readCammMotion(file, signal);
   return codec === "djmd"
     ? readDjiMotion(file, signal)
     : readGoProMotion(file, signal);
