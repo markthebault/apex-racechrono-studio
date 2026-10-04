@@ -1,4 +1,6 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
+import { readFileSync, existsSync } from "node:fs";
+import { parseEnv } from "node:util";
 import react from "@vitejs/plugin-react";
 // Private, development-only fixture access. Never included in a production build.
 import { readFile, writeFile } from "node:fs/promises";
@@ -6,13 +8,32 @@ import { readFile, writeFile } from "node:fs/promises";
 //   APEX_ALLOWED_HOSTS=my-host.my-tailnet.ts.net   comma separated, for the dev server
 //   APEX_LOCAL_SESSIONS=/path/a.rcz,/path/b.rcz    served to the dev-only import shortcut
 //   APEX_FIXTURES=/path/to/folder                  real recordings for the extra tests
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "APEX_");
+export default defineConfig(() => {
+  // .env may hold unrelated server credentials. Read only the explicit local
+  // app configuration; never load generic .env files into a browser build.
+  const configured = {
+    ...(existsSync(".env.local")
+      ? parseEnv(readFileSync(".env.local", "utf8"))
+      : {}),
+    ...process.env,
+  };
+  const env = Object.fromEntries(
+    Object.entries(configured).filter(([key]) => key.startsWith("APEX_")),
+  );
+  const browserKeys = ["VITE_GOOGLE_CLIENT_ID", "VITE_GOOGLE_PICKER_API_KEY"];
+  const define = Object.fromEntries(
+    browserKeys.map((key) => [
+      "import.meta.env." + key,
+      JSON.stringify(configured[key] || ""),
+    ]),
+  );
   const localSessions = (env.APEX_LOCAL_SESSIONS || "")
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
   return {
+    envDir: false,
+    define,
     test: { env },
     server: {
       allowedHosts: (env.APEX_ALLOWED_HOSTS || "")

@@ -93,6 +93,7 @@ import type { ImportDecision } from "./ProjectImportDialog";
 import type { LoadedProject } from "./storage";
 import { matchProjectVideos } from "./projectVideos";
 import { GoogleDriveDialog } from "./GoogleDriveDialog";
+import { useGoogleDrive } from "./useGoogleDrive";
 const defaults: Settings = {
   speedUnit: "km/h",
   colors: ["#63e5d2", "#f8a36b"],
@@ -709,6 +710,7 @@ export default function App() {
     abort.current = new AbortController();
     const added: Session[] = [],
       failures: string[] = [];
+    let projectImported = false;
     let alreadyThere = 0,
       videos = 0;
     // VBO files borrow their finish line from sessions of the same track, so in a mixed
@@ -761,6 +763,7 @@ export default function App() {
           setSessions((await load()).records.map((r) => r.session));
           setSettings({ ...defaults, ...p.manifest.settings });
           setSync(p.manifest.sync);
+          projectImported = true;
           if (decision.openVideos || decision.files.length) {
             setShowVideos(true);
             setTab("Video sync");
@@ -886,7 +889,31 @@ export default function App() {
       }
       if (line) setStatus(line);
     }
+    return projectImported;
   }
+  const driveRevision = useMemo(
+    () =>
+      JSON.stringify({
+        settings,
+        sync,
+        sessions: sessions.map((s) => ({
+          id: s.id,
+          trackId: s.trackId,
+          laps: s.laps,
+        })),
+      }),
+    [settings, sync, sessions],
+  );
+  const drive = useGoogleDrive({
+    open: driveOpen,
+    ready: ready && !removing && !abort.current,
+    revision: driveRevision,
+    onCreate: () => createProject(settings, sync),
+    onOpen: async (file) => {
+      setDriveOpen(false);
+      return (await importFiles([file])) === true;
+    },
+  });
   sessionsRef.current = sessions;
   importRef.current = importFiles;
   // Files can be dropped anywhere on the window. Listening on the window also stops the
@@ -1102,8 +1129,7 @@ export default function App() {
       <GoogleDriveDialog
         open={driveOpen}
         onClose={() => setDriveOpen(false)}
-        onCreate={() => createProject(settings, sync)}
-        onOpen={(file) => void importFiles([file])}
+        drive={drive}
       />
       {projectReview && (
         <ProjectImportDialog
@@ -1232,9 +1258,37 @@ export default function App() {
             <button onClick={() => exportProject(settings, sync).catch(report)}>
               <ArrowDownToLine size={14} /> Download session file
             </button>
-            <button onClick={() => setDriveOpen(true)}>
-              <Cloud size={14} /> Google Drive
-            </button>
+            <div className="drive-header-actions">
+              <button onClick={() => setDriveOpen(true)}>
+                <Cloud size={14} /> Google Drive
+              </button>
+              <button
+                disabled={drive.busy || !ready}
+                className={drive.connected ? "primary" : ""}
+                onClick={() => {
+                  if (drive.connected && drive.preferences.target)
+                    void drive.save();
+                  else setDriveOpen(true);
+                }}
+              >
+                <Cloud size={14} />{" "}
+                {drive.busy ? "Drive working…" : "Save to Drive"}
+              </button>
+              <span className="drive-header-status" role="status">
+                {drive.error ||
+                  (drive.preferences.target
+                    ? !drive.connected
+                      ? "Reconnect to save"
+                      : drive.preferences.autoSave
+                        ? drive.dirty
+                          ? "Autosave pending"
+                          : "Saved to Drive · Auto"
+                        : drive.dirty
+                          ? "Drive changes pending"
+                          : "Saved to Drive"
+                    : "")}
+              </span>
+            </div>
             <button className="primary" onClick={() => input.current?.click()}>
               <Plus size={15} /> Import sessions
             </button>
@@ -2700,6 +2754,8 @@ export default function App() {
         <footer>
           <span className="brand-mini">apex.</span>
           <span>A little more understanding. A little less lap time.</span>
+          <a href="/privacy.html">Privacy</a>
+          <a href="/terms.html">Terms</a>
           <button
             onClick={() =>
               download("track-day.rcsync.json", JSON.stringify(sync, null, 2))

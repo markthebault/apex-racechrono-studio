@@ -1,78 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Cloud, FolderOpen, RefreshCw } from "lucide-react";
-import {
-  DRIVE_SCOPE,
-  DriveAuthExpired,
-  listDriveProjects,
-  loadGoogleIdentity,
-  openDriveProject,
-  saveDriveProject,
-} from "./googleDrive";
-import type { DriveFile, GoogleIdentity } from "./googleDrive";
+import type { GoogleDriveController } from "./useGoogleDrive";
 import "./googleDrive.css";
-const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ?? "";
 export function GoogleDriveDialog({
   open,
   onClose,
-  onCreate,
-  onOpen,
+  drive,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreate: () => Promise<Blob>;
-  onOpen: (file: File) => void;
+  drive: GoogleDriveController;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const client =
-    useRef<ReturnType<GoogleIdentity["accounts"]["oauth2"]["initTokenClient"]>>(
-      undefined,
-    );
-  const token = useRef<{ value: string; expires: number }>(undefined);
-  const operation = useRef<AbortController>(undefined);
-  const [ready, setReady] = useState(false),
-    [connected, setConnected] = useState(false),
-    [busy, setBusy] = useState(false),
-    [files, setFiles] = useState<DriveFile[]>([]),
-    [error, setError] = useState(""),
-    [status, setStatus] = useState("");
-  const [name, setName] = useState(
-    "Track day " + new Date().toISOString().slice(0, 10),
-  );
-  function accessToken() {
-    if (!token.current || token.current.expires <= Date.now()) {
-      token.current = undefined;
-      setConnected(false);
-      throw new DriveAuthExpired();
-    }
-    return token.current.value;
-  }
-  function report(e: unknown) {
-    if (e instanceof DriveAuthExpired) {
-      token.current = undefined;
-      setConnected(false);
-    }
-    setError(
-      e instanceof Error && e.name === "AbortError"
-        ? "Operation cancelled."
-        : e instanceof Error
-          ? e.message
-          : "Google Drive operation failed.",
-    );
-  }
-  async function refresh() {
-    const controller = new AbortController();
-    operation.current = controller;
-    setBusy(true);
-    setError("");
-    try {
-      setFiles(await listDriveProjects(accessToken(), controller.signal));
-    } catch (e) {
-      report(e);
-    } finally {
-      if (operation.current === controller) operation.current = undefined;
-      setBusy(false);
-    }
-  }
+  const [folderName, setFolderName] = useState("Apex Studio");
+  const { preferences: p, connected, busy } = drive;
   useEffect(() => {
     if (!open) return;
     const element = dialog.current!;
@@ -83,110 +24,15 @@ export function GoogleDriveDialog({
       if (previous?.isConnected) previous.focus();
     };
   }, [open]);
-  useEffect(() => {
-    if (!open || !clientId) return;
-    let active = true;
-    loadGoogleIdentity()
-      .then((identity) => {
-        if (!active) return;
-        client.current = identity.accounts.oauth2.initTokenClient({
-          client_id: clientId,
-          scope: DRIVE_SCOPE,
-          include_granted_scopes: false,
-          callback: (response) => {
-            if (
-              response.error ||
-              !response.access_token ||
-              !identity.accounts.oauth2.hasGrantedAllScopes(
-                response,
-                DRIVE_SCOPE,
-              )
-            ) {
-              setBusy(false);
-              setError(
-                "Google Drive connection was not completed. Please allow access to the files this app creates.",
-              );
-              return;
-            }
-            const expires = Number(response.expires_in);
-            if (!Number.isFinite(expires) || expires <= 30 || expires > 86400) {
-              setBusy(false);
-              report(new DriveAuthExpired());
-              return;
-            }
-            token.current = {
-              value: response.access_token,
-              expires: Date.now() + (expires - 30) * 1000,
-            };
-            setConnected(true);
-            setError("");
-            setStatus("Connected to Google Drive.");
-            void refresh();
-          },
-          error_callback: () => {
-            setBusy(false);
-            setError(
-              "Google sign-in was closed or blocked. Try connecting again.",
-            );
-          },
-        });
-        setReady(true);
-        if (token.current) void refresh();
-      })
-      .catch((e) => {
-        if (active) report(e);
-      });
-    return () => {
-      active = false;
-    };
-  }, [open]);
-  async function save() {
-    const controller = new AbortController();
-    operation.current = controller;
-    setBusy(true);
-    setError("");
-    setStatus("Preparing your portable session file…");
+  async function pickFolder() {
+    // Google's picker is attached to document.body. Hide the native top-layer
+    // dialog while it is open so the picker remains visible and interactive.
+    const element = dialog.current!;
+    element.close();
     try {
-      const value = accessToken(),
-        archive = await onCreate();
-      const result = await saveDriveProject(
-        value,
-        archive,
-        name,
-        (progress) =>
-          setStatus(`Saving to Google Drive · ${Math.round(progress * 100)}%`),
-        controller.signal,
-      );
-      setStatus(`Saved ${result.name} to your Google Drive.`);
-      setFiles(await listDriveProjects(accessToken(), controller.signal));
-    } catch (e) {
-      report(e);
-      setStatus("");
+      await drive.chooseFolder();
     } finally {
-      if (operation.current === controller) operation.current = undefined;
-      setBusy(false);
-    }
-  }
-  async function restore(file: DriveFile) {
-    const controller = new AbortController();
-    operation.current = controller;
-    setBusy(true);
-    setError("");
-    setStatus(`Opening ${file.name}…`);
-    try {
-      const local = await openDriveProject(
-        accessToken(),
-        file,
-        controller.signal,
-      );
-      onClose();
-      onOpen(local);
-      setStatus("");
-    } catch (e) {
-      report(e);
-    } finally {
-      if (operation.current === controller) operation.current = undefined;
-      setBusy(false);
+      if (element.isConnected) element.showModal();
     }
   }
   if (!open) return null;
@@ -205,77 +51,159 @@ export function GoogleDriveDialog({
         <Cloud size={24} /> Google Drive
       </h2>
       <p>
-        Save your GPS, telemetry and video timing as a portable session file.
-        Open it on another device and choose your local videos.
+        Your session file includes all local RCZ/VBO recordings, analysis
+        settings and saved video timing. Relinking an original video restores
+        its alignment; videos stay on your device.
       </p>
       <p className="muted">
-        The app requests access to files it creates or you open with it. Videos
-        stay on your device. Your browser keeps the Google connection only for
-        this visit.{" "}
+        The connection survives refreshes in this tab until Google’s token
+        expires. Your account, chosen folder and saved-file list are remembered
+        on this device.{" "}
         <a href="/privacy.html" target="_blank" rel="noopener noreferrer">
           How your data is used
         </a>
       </p>
-      {!clientId ? (
+      {!drive.configured ? (
         <p className="notice">
-          Google Drive has not been configured for this deployment. You can use
-          Download session file for local storage.
+          Google Drive is not configured. Use Download session file for local
+          storage.
         </p>
       ) : (
         <div className="drive-connect">
           <span className={connected ? "cyan" : "muted"}>
             {connected
-              ? "Google Drive connected"
-              : "Choose a Google account to connect"}
+              ? `Google Drive connected · ${drive.account?.name}`
+              : drive.account
+                ? `Reconnect ${drive.account.name}`
+                : "Choose a Google account to connect"}
           </span>
-          <button
-            disabled={!ready || busy}
-            className="primary"
-            onClick={() => {
-              setError("");
-              setBusy(true);
-              client.current?.requestAccessToken({ prompt: "select_account" });
-            }}
-          >
-            Connect Google Drive
-          </button>
-          {connected && (
+          {!connected && (
             <button
-              disabled={busy}
-              onClick={() => {
-                token.current = undefined;
-                setConnected(false);
-                setFiles([]);
-                setStatus("Disconnected from Google Drive.");
-              }}
+              className="primary"
+              disabled={!drive.identityReady || busy}
+              onClick={() => drive.connect()}
             >
-              Disconnect this browser
+              {drive.account
+                ? "Reconnect Google Drive"
+                : "Connect Google Drive"}
             </button>
+          )}
+          {connected && (
+            <>
+              <button disabled={busy} onClick={() => drive.connect(true)}>
+                Switch account
+              </button>
+              <button disabled={busy} onClick={drive.disconnect}>
+                Disconnect this browser
+              </button>
+            </>
           )}
         </div>
       )}
-      {error && (
+      {drive.error && (
         <p className="error" role="alert">
-          {error}
+          {drive.error}
         </p>
       )}
-      {status && <p role="status">{status}</p>}
+      {drive.status && <p role="status">{drive.status}</p>}
+      <section className="drive-folder">
+        <h3>Save location</h3>
+        <div className="drive-folder-current">
+          <FolderOpen size={18} />
+          <b>{p.folder?.name || "My Drive"}</b>
+          {p.folder && (
+            <a
+              href={`https://drive.google.com/drive/folders/${p.folder.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View folder
+            </a>
+          )}
+        </div>
+        <div className="drive-row">
+          <button
+            disabled={!connected || busy || !drive.pickerConfigured}
+            onClick={pickFolder}
+          >
+            Choose Drive folder
+          </button>
+          {p.folder && (
+            <button disabled={busy} onClick={drive.useMyDrive}>
+              Use My Drive
+            </button>
+          )}
+        </div>
+        <div className="drive-row">
+          <input
+            aria-label="New Drive folder name"
+            value={folderName}
+            maxLength={180}
+            onChange={(e) => setFolderName(e.target.value)}
+          />
+          <button
+            disabled={!connected || busy || !folderName.trim()}
+            onClick={() => drive.newFolder(folderName)}
+          >
+            Create folder
+          </button>
+        </div>
+        <small>
+          Changing the folder starts a new saved file there. Existing files stay
+          where they are.
+        </small>
+      </section>
       <section className="drive-save">
-        <h3>Save this workspace</h3>
+        <h3>{p.target ? "Current Drive file" : "Save this workspace"}</h3>
+        {p.target && (
+          <p className="drive-target">
+            <b>{p.target.name}</b>
+            <span>
+              {drive.dirty ? "Changes ready to save" : "Up to date"}
+              {p.lastSavedAt &&
+                ` · Saved ${new Date(p.lastSavedAt).toLocaleTimeString()}`}
+            </span>
+          </p>
+        )}
         <label>
           File name
           <input
             aria-label="Drive session file name"
-            value={name}
+            value={p.name}
             maxLength={180}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => drive.patch({ name: e.target.value })}
           />
         </label>
-        <button disabled={!connected || busy || !name.trim()} onClick={save}>
-          Save a new copy to Drive
-        </button>
+        <div className="drive-row">
+          <button
+            className="primary"
+            disabled={!connected || busy || !p.name.trim()}
+            onClick={() => drive.save()}
+          >
+            Save to Drive
+          </button>
+          {p.target && (
+            <button
+              disabled={!connected || busy || !p.name.trim()}
+              onClick={() => drive.save(true)}
+            >
+              Save a new copy
+            </button>
+          )}
+        </div>
+        <label className="drive-autosave">
+          <input
+            type="checkbox"
+            checked={p.autoSave}
+            disabled={!connected || busy || !p.target}
+            onChange={(e) => drive.patch({ autoSave: e.target.checked })}
+          />{" "}
+          Automatically save changes to this file
+        </label>
         <small>
-          Each save creates a new copy with all sessions stored in this browser.
+          {p.target
+            ? "Autosave runs after 30 seconds without changes, while this tab is open and connected. Video synchronization changes are included."
+            : "Save once to create your Drive file, then enable autosave. Future saves update that file."}
         </small>
       </section>
       <div className="drive-list-heading">
@@ -283,28 +211,41 @@ export function GoogleDriveDialog({
         <button
           aria-label="Refresh Drive files"
           disabled={!connected || busy}
-          onClick={refresh}
+          onClick={() => drive.refresh()}
         >
           <RefreshCw size={14} /> Refresh
         </button>
       </div>
+      {!connected && p.files.length > 0 && (
+        <p className="muted">
+          Remembered files · reconnect to open them or refresh this list.
+        </p>
+      )}
       <div className="drive-files">
-        {files.map((file) => (
+        {p.files.map((file) => (
           <article key={file.id}>
             <div>
-              <b>{file.name}</b>
+              <b>
+                {file.name}
+                {file.id === p.target?.id && (
+                  <span className="drive-current">Current</span>
+                )}
+              </b>
               <small>
                 {file.modifiedTime &&
                   new Date(file.modifiedTime).toLocaleString()}
                 {file.size && ` · ${(Number(file.size) / 1024).toFixed(0)} KB`}
               </small>
             </div>
-            <button disabled={!connected || busy} onClick={() => restore(file)}>
+            <button
+              disabled={!connected || busy}
+              onClick={() => drive.restore(file)}
+            >
               <FolderOpen size={14} /> Open
             </button>
           </article>
         ))}
-        {!files.length && (
+        {!p.files.length && (
           <p className="muted">
             {connected
               ? "No session files saved by this app yet."
@@ -313,11 +254,7 @@ export function GoogleDriveDialog({
         )}
       </div>
       <div className="drive-actions">
-        {busy && operation.current && (
-          <button onClick={() => operation.current?.abort()}>
-            Cancel operation
-          </button>
-        )}
+        {busy && <button onClick={drive.cancel}>Cancel operation</button>}
         <button disabled={busy} onClick={onClose}>
           Done
         </button>
