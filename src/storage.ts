@@ -271,26 +271,28 @@ export function stampAtVideo(binding: Binding, seconds: number) {
     : 0.001;
   return a.sessionTimestamp + (seconds - a.videoSeconds) / rate;
 }
-export async function exportProject(settings: Settings, sync: SyncFile) {
-  const records = (await load()).records;
+export async function createProject(
+  settings: Settings,
+  sync: SyncFile,
+  records?: { session: Session; file: Blob }[],
+) {
+  records ??= (await load()).records;
+  validateSettings(settings);
+  const portableSync = validateSync(sync);
   const files: Record<string, Uint8Array> = {
     "project.json": strToU8(
       JSON.stringify({
         format: "apex-project",
         version: 1,
         settings,
-        sync,
+        sync: portableSync,
         sessions: records.map((r) => ({
           id: r.session.id,
           filename: r.session.filename,
-          ...(r.session.format === "vbo" || r.session.trackEdited
-            ? {
-                track: r.session.track,
-                trackId: r.session.trackId,
-                line: r.session.line,
-                trackEdited: r.session.trackEdited,
-              }
-            : {}),
+          track: r.session.track,
+          trackId: r.session.trackId,
+          line: r.session.line,
+          trackEdited: r.session.trackEdited,
         })),
       }),
     ),
@@ -299,12 +301,30 @@ export async function exportProject(settings: Settings, sync: SyncFile) {
     files[
       `sessions/${r.session.id}.${r.session.format === "vbo" ? "vbo" : "rcz"}`
     ] = new Uint8Array(await r.file.arrayBuffer());
-  download("track-day.apex.zip", zipSync(files) as BlobPart, "application/zip");
+  return new Blob([zipSync(files) as BlobPart], { type: "application/zip" });
 }
-export async function readProject(file: File) {
+export async function exportProject(settings: Settings, sync: SyncFile) {
+  download(
+    "track-day.apex.zip",
+    await createProject(settings, sync),
+    "application/zip",
+  );
+}
+export async function readProject(
+  file: File,
+  decodeFile = (file: File) => work<Session>("decode", { file }),
+) {
+  if (file.size > 512 * 1024 * 1024) throw Error("Project archive too large.");
+  let total = 0;
   const z = unzipSync(new Uint8Array(await file.arrayBuffer()), {
     filter: (f) => {
-      if (f.originalSize > 256 * 1024 * 1024)
+      if (
+        f.name !== "project.json" &&
+        !/^sessions\/[a-f0-9]{64}\.(?:rcz|vbo)$/.test(f.name)
+      )
+        return false;
+      total += f.originalSize;
+      if (f.originalSize > 256 * 1024 * 1024 || total > 512 * 1024 * 1024)
         throw Error("Project entry too large.");
       return true;
     },
@@ -323,12 +343,21 @@ export async function readProject(file: File) {
   validateSettings(manifest.settings);
   manifest.sync = validateSync(manifest.sync);
   const records = [];
+  const ids = new Set<string>();
   for (const entry of manifest.sessions) {
+    if (
+      !entry ||
+      !/^[a-f0-9]{64}$/.test(entry.id) ||
+      typeof entry.filename !== "string" ||
+      ids.has(entry.id)
+    )
+      throw Error("Invalid or duplicate project session.");
+    ids.add(entry.id);
     const bytes =
       z[`sessions/${entry.id}.rcz`] ?? z[`sessions/${entry.id}.vbo`];
     if (!bytes) throw Error("Project session is missing.");
     const f = new File([bytes as BlobPart], entry.filename);
-    let session = await work<Session>("decode", { file: f });
+    let session = await decodeFile(f);
     if (session.id !== entry.id) throw Error("Project session hash mismatch.");
     // A VBO carries no laps, and a track can be chosen by hand, so both travel in the manifest.
     if (entry.track !== undefined && Number.isFinite(entry.trackId))
@@ -344,6 +373,7 @@ export async function readProject(file: File) {
   }
   return { manifest, records };
 }
+export type LoadedProject = Awaited<ReturnType<typeof readProject>>;
 
 export function validateSettings(s: any) {
   const list = (x: any) =>
