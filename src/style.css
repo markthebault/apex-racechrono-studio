@@ -1330,7 +1330,7 @@ footer button {
 /* Darken each tile on its own. A filter on the whole tile pane renders unfiltered
    patches while the map is animating or loading tiles. */
 .leaflet-tile {
-  filter: brightness(0.34) saturate(0.2) contrast(1.3);
+  filter: grayscale(1) invert(1) brightness(0.8) contrast(0.84);
 }
 .lap-picker input[type="color"] {
   width: 23px;
