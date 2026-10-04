@@ -1,6 +1,11 @@
 import type { FinishLine, Session } from "./model";
 import { trackIdFromName } from "./vbo";
-import { distanceToPath, lineAtStart, lineFromSession } from "./laps";
+import {
+  distanceToPath,
+  lineAtEnd,
+  lineAtStart,
+  lineFromSession,
+} from "./laps";
 import { lower } from "./analysis";
 import { applyLine } from "./vboImport";
 
@@ -69,6 +74,9 @@ export type TrackSummary = {
   line: FinishLine | null;
   // Where the line came from, in words for the screen.
   lineFrom: "you" | "session" | "laps" | "lap start" | "none";
+  // Set when laps end somewhere other than where they start, as on a track timed from a
+  // start line to a separate finish line. `line` is then the start.
+  finish: FinishLine | null;
   // The fastest lap as map points, or the whole path when no lap exists yet.
   outline: [number, number][];
   // The fastest lap of each of the other sessions, drawn faintly.
@@ -99,6 +107,34 @@ function stretch(s: Session, from: number, to: number) {
 
 // One entry per track in use, with what the Tracks screen shows: the trace, the start/finish
 // line, and the numbers. Busiest tracks first.
+const gap = (a: FinishLine, b: FinishLine) => {
+  const k = Math.cos((a.lat * Math.PI) / 180) * 111320;
+  return Math.hypot((a.lon - b.lon) * k, (a.lat - b.lat) * 110540);
+};
+// The finish line of a track whose laps end far from where they start. The fastest lap
+// sets the two places. The track counts as timed to a separate finish line when they are
+// 150 m or more apart and at least 80% of the laps, and at least two, start within 60 m
+// of the one and end within 60 m of the other. A stray lap does not spoil it.
+export function separateFinish(
+  list: Session[],
+  best: NonNullable<TrackSummary["best"]>,
+): FinishLine | null {
+  const ref = best.session.laps.find((l) => l.number === best.lapNumber)!;
+  const from = lineAtStart(best.session, ref),
+    to = lineAtEnd(best.session, ref);
+  if (gap(from, to) < 150) return null;
+  let laps = 0,
+    agree = 0;
+  for (const s of list)
+    for (const l of s.laps) {
+      laps++;
+      if (gap(lineAtStart(s, l), from) < 60 && gap(lineAtEnd(s, l), to) < 60)
+        agree++;
+    }
+  if (agree < 2 || agree < 0.8 * laps) return null;
+  return { ...to, source: "session" };
+}
+
 export function summarizeTracks(sessions: Session[]): TrackSummary[] {
   const groups = new Map<number, Session[]>();
   for (const s of sessions)
@@ -149,6 +185,7 @@ export function summarizeTracks(sessions: Session[]): TrackSummary[] {
       line = lineAtStart(best.session, lap);
       lineFrom = "lap start";
     }
+    const finish = best ? separateFinish(list, best) : null;
     const others = list
       .filter((s) => s.id !== ref.id && fastest.has(s.id))
       .slice(0, 8)
@@ -165,6 +202,7 @@ export function summarizeTracks(sessions: Session[]): TrackSummary[] {
       lengthM: outline.length,
       line,
       lineFrom,
+      finish,
       outline: outline.points,
       others,
     });
