@@ -31,14 +31,22 @@
     authorize access to files created by this app or opened with it. Saving
     uploads a portable archive containing your original telemetry recordings,
     analysis settings and video timing. Opening downloads the archive into your
-    browser for review. Each save creates a new file; the app does not delete or
-    replace your existing Drive files.
+    browser for review. Save to Drive updates the current app-created session
+    file. Save a new copy creates a separate file. You can choose a Drive folder
+    or create one. Optional autosave sends changed telemetry, settings and video
+    timing to your current file while this tab is open and connected. The app
+    does not delete your Drive files.
   </p>
   <p>
-    Google access tokens are held in browser memory for the current visit. The
-    app does not store refresh tokens, passwords or Google account information
-    in its session files. Disconnecting clears the connection in this browser.
-    You can also revoke access in your Google account settings.
+    Google access tokens are held in browser memory and this tab’s session
+    storage until they expire, so a refresh can retain the connection. The app
+    remembers a Drive account identifier and display name, chosen folder,
+    current file, autosave preference and a list of saved file names in local
+    browser storage. These are kept per Google account and are not included in
+    exported session files. The app does not store refresh tokens or passwords.
+    Disconnecting clears the access token and disables autosave; remembered file
+    and folder details remain on this device. Clearing site storage removes
+    those details. You can also revoke access in your Google account settings.
   </p>
   <p>
     The static hosting provider receives normal website requests. Google
@@ -57,5 +65,8 @@
       >project repository</a
     >.
   </p>
-  <p><a href="/">Return to Apex Studio</a> · <a href="/terms.html">Terms of Service</a></p>
+  <p>
+    <a href="/">Return to Apex Studio</a> ·
+    <a href="/terms.html">Terms of Service</a>
+  </p>
 </html>

@@ -1,13 +1,24 @@
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const api = "https://www.googleapis.com/drive/v3";
 const uploadApi = "https://www.googleapis.com/upload/drive/v3/files";
-const fields = "id,name,modifiedTime,size";
+const fields = "id,name,modifiedTime,size,version,parents";
 export type DriveFile = {
   id: string;
   name: string;
   modifiedTime?: string;
   size?: string;
+  version?: string;
+  parents?: string[];
 };
+export type DriveFolder = { id: string; name: string };
+export type DriveAccount = { id: string; name: string };
+export class DriveConflict extends Error {
+  constructor() {
+    super(
+      "This Drive file changed elsewhere. Open the latest copy or save a new copy to keep both versions.",
+    );
+  }
+}
 export class DriveAuthExpired extends Error {
   constructor() {
     super("Your Google Drive connection expired. Connect again to continue.");
@@ -18,6 +29,8 @@ function fileId(id: string) {
   return id;
 }
 async function check(response: Response) {
+  if (response.status === 409 || response.status === 412)
+    throw new DriveConflict();
   if (response.status === 401) throw new DriveAuthExpired();
   if (response.status === 403)
     throw Error(
@@ -60,31 +73,108 @@ export async function listDriveProjects(
   }
   throw Error("Too many saved Drive files. Open a smaller collection.");
 }
+export async function driveAccount(
+  token: string,
+  signal?: AbortSignal,
+): Promise<DriveAccount> {
+  const response = await check(
+    await fetch(`${api}/about?fields=user(permissionId,displayName)`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    }),
+  );
+  const { user } = await response.json();
+  if (!user?.permissionId)
+    throw Error("Google Drive did not identify the connected account.");
+  return { id: user.permissionId, name: user.displayName || "Google account" };
+}
+export async function getDriveProject(
+  token: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<DriveFile> {
+  const response = await check(
+    await fetch(
+      `${api}/files/${fileId(id)}?fields=${fields},appProperties,trashed`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
+      },
+    ),
+  );
+  const file = await response.json();
+  if (file.trashed || file.appProperties?.apexProject !== "1" || !file.version)
+    throw Error("This is not an available Apex Studio session file.");
+  return file;
+}
+export async function createDriveFolder(
+  token: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<DriveFolder> {
+  if (!name.trim()) throw Error("Enter a folder name.");
+  const response = await check(
+    await fetch(`${api}/files?fields=id,name`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: name.trim().slice(0, 180),
+        mimeType: "application/vnd.google-apps.folder",
+      }),
+      signal,
+    }),
+  );
+  const folder = await response.json();
+  if (!folder?.id || !folder?.name)
+    throw Error("Google Drive did not create the folder.");
+  return folder;
+}
 export async function saveDriveProject(
   token: string,
   blob: Blob,
   name: string,
   onProgress?: (n: number) => void,
   signal?: AbortSignal,
+  options: { folderId?: string; target?: DriveFile } = {},
 ): Promise<DriveFile> {
+  if (!name.trim()) throw Error("Enter a file name.");
+  const target = options.target;
+  if (target) {
+    if (!target.version) throw new DriveConflict();
+    const current = await getDriveProject(token, target.id, signal);
+    if (current.version !== target.version) throw new DriveConflict();
+  }
   if (!blob.size || blob.size > 512 * 1024 * 1024)
     throw Error("The session archive is empty or too large.");
   const response = await check(
-    await fetch(`${uploadApi}?uploadType=resumable&fields=${fields}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "X-Upload-Content-Type": "application/zip",
-        "X-Upload-Content-Length": String(blob.size),
+    await fetch(
+      `${uploadApi}${target ? "/" + fileId(target.id) : ""}?uploadType=resumable&fields=${fields}`,
+      {
+        method: target ? "PATCH" : "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Upload-Content-Type": "application/zip",
+          "X-Upload-Content-Length": String(blob.size),
+        },
+        body: JSON.stringify({
+          name: name.trim().replace(/\.apex\.zip$/i, "") + ".apex.zip",
+          ...(!target
+            ? {
+                mimeType: "application/zip",
+                appProperties: { apexProject: "1" },
+                ...(options.folderId
+                  ? { parents: [fileId(options.folderId)] }
+                  : {}),
+              }
+            : {}),
+        }),
+        signal,
       },
-      body: JSON.stringify({
-        name: name.trim().replace(/\.apex\.zip$/i, "") + ".apex.zip",
-        mimeType: "application/zip",
-        appProperties: { apexProject: "1" },
-      }),
-      signal,
-    }),
+    ),
   );
   const location = response.headers.get("Location");
   if (
