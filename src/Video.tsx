@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Volume2, VolumeX } from "lucide-react";
+import { VideoMotionSync } from "./VideoMotionSync";
 import { ClockInput } from "./ClockInput";
 import { lapTime } from "./model";
 import type { Binding, Identity, Session } from "./model";
@@ -30,9 +31,12 @@ export function VideoPanel({
   onBinding,
   files,
   setFiles,
+  sourceFiles,
+  setSourceFiles,
   onBusy,
   label,
   playing,
+  playbackRate = 1,
   onPause,
   onUnlink,
   onGoTo,
@@ -46,9 +50,12 @@ export function VideoPanel({
   onBinding: (b: Binding) => void;
   files: Record<string, string>;
   setFiles: (v: Record<string, string>) => void;
+  sourceFiles: Record<string, File>;
+  setSourceFiles: (v: Record<string, File>) => void;
   onBusy: (busy: boolean) => void;
   label: string;
   playing: boolean;
+  playbackRate?: number;
   onPause: () => void;
   onUnlink: () => void;
   onGoTo?: (stamp: number) => void;
@@ -107,6 +114,7 @@ export function VideoPanel({
     }
     const v = video.current,
       target = Math.max(0, Math.min(clip.duration, vt - clip.start));
+    v.playbackRate = playbackRate;
     if (Math.abs(v.currentTime - target) > (playing ? 0.35 : 0.04)) {
       onBusy(true);
       v.currentTime = target;
@@ -125,7 +133,7 @@ export function VideoPanel({
         } else setError(`Playback unavailable: ${e.message}`);
       });
     else v.pause();
-  }, [vt, url, editing, playing]);
+  }, [vt, url, editing, playing, playbackRate]);
   useEffect(() => () => onBusy(false), []);
   useEffect(() => {
     setSelected(0);
@@ -151,6 +159,7 @@ export function VideoPanel({
       list = ordered.map((x) => x.file);
       handles = handles ? ordered.map((x) => x.handle) : undefined;
       const urls = { ...files };
+      const sources = { ...sourceFiles };
       for (let i = 0; i < list.length; i++) {
         const f = list[i];
         // A file seen before is recognised from a 2 MB fingerprint instead of being read
@@ -182,7 +191,13 @@ export function VideoPanel({
           );
         if (mode === "append" && !match && clips.some((c) => !urls[c.sha256]))
           throw Error("Reload the earlier clips first, then add the next one.");
-        const objectUrl = URL.createObjectURL(f);
+        const objectUrl = URL.createObjectURL(
+          new Blob([f], {
+            type: /\.(insv|osv)$/i.test(f.name)
+              ? "video/mp4"
+              : f.type || "video/mp4",
+          }),
+        );
         const duration = await new Promise<number>((resolve, reject) => {
           const v = document.createElement("video");
           const timer = setTimeout(
@@ -204,6 +219,7 @@ export function VideoPanel({
         if (!Number.isFinite(duration) || duration <= 0)
           throw Error("Video has no valid duration.");
         urls[identity.sha256] = objectUrl;
+        sources[identity.sha256] = f;
         if (handles?.[i]) await saveHandle(identity.sha256, handles[i]);
         if (!match)
           clips.push({
@@ -215,6 +231,7 @@ export function VideoPanel({
           });
       }
       setFiles(urls);
+      setSourceFiles(sources);
       // A first clip is placed on the telemetry clock from the time recorded in the file,
       // when that time falls inside this session.
       let anchors = base?.anchors ?? [];
@@ -293,7 +310,7 @@ export function VideoPanel({
           types: [
             {
               description: "Videos",
-              accept: { "video/*": [".mp4", ".mov", ".webm"] },
+              accept: { "video/*": [".mp4", ".mov", ".webm", ".insv", ".osv"] },
             },
           ],
         });
@@ -326,10 +343,11 @@ export function VideoPanel({
       await open("relink");
     }
   }
-  function anchor(second = false) {
+  function anchor(second = false, gpsAnchor?: Binding["anchors"][number]) {
     if (!binding || !clip || !video.current) return;
-    const seconds = clip.start + video.current.currentTime;
-    const a = { videoSeconds: seconds, sessionTimestamp: stamp };
+    const seconds =
+      gpsAnchor?.videoSeconds ?? clip.start + video.current.currentTime;
+    const a = gpsAnchor ?? { videoSeconds: seconds, sessionTimestamp: stamp };
     const next = {
       ...binding,
       anchors: second ? [binding.anchors[0], a] : [a],
@@ -340,10 +358,14 @@ export function VideoPanel({
       setError("");
       // Visible proof that the press did something.
       setConfirm({
-        what: second ? "Drift correction added" : "Synced",
+        what: gpsAnchor
+          ? "Synced from GPS"
+          : second
+            ? "Drift correction added"
+            : "Synced",
         video: seconds,
-        lap: lapStart === undefined ? NaN : stamp - lapStart,
-        wall: stamp,
+        lap: lapStart === undefined ? NaN : a.sessionTimestamp - lapStart,
+        wall: a.sessionTimestamp,
       });
       setJustSynced(true);
       clearTimeout(flash.current);
@@ -451,7 +473,7 @@ export function VideoPanel({
         hidden
         ref={input}
         type="file"
-        accept="video/*"
+        accept="video/*,.mp4,.mov,.webm,.insv,.osv"
         multiple
         onChange={(e) => {
           const chosen = Array.from(e.target.files || []);
@@ -612,6 +634,68 @@ export function VideoPanel({
                     ({formatClockTenths(confirm.wall)}).
                   </span>
                 </div>
+              )}
+              {binding.clips.length > 1 && (
+                <label>
+                  Clip to synchronize{" "}
+                  <select
+                    aria-label="Telemetry clip"
+                    value={selected}
+                    onChange={(e) => setSelected(+e.target.value)}
+                  >
+                    {binding.clips.map((c, i) => (
+                      <option value={i} key={c.sha256}>
+                        {i + 1}. {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {session && clip && (
+                <VideoMotionSync
+                  key={clip.sha256}
+                  session={session}
+                  clip={clip}
+                  file={sourceFiles[clip.sha256]}
+                  stamp={stamp}
+                  seek={seek}
+                  sessionFrom={lapStart ?? session.start}
+                  sessionTo={
+                    lapStart !== undefined && lapDuration !== undefined
+                      ? lapStart + lapDuration
+                      : session.end
+                  }
+                  onGoTo={
+                    onGoTo
+                      ? (t) => {
+                          onPause();
+                          onGoTo(t);
+                        }
+                      : undefined
+                  }
+                  onSeek={(t) => {
+                    if (video.current) {
+                      video.current.pause();
+                      video.current.currentTime = t;
+                      setSeek(t);
+                    }
+                  }}
+                  onGpsSync={(a) => {
+                    anchor(false, a);
+                    onGoTo?.(
+                      a.sessionTimestamp +
+                        (clip.start + seek - a.videoSeconds) * 1000,
+                    );
+                  }}
+                  onConfig={(motion) =>
+                    onBinding({
+                      ...binding,
+                      clips: binding.clips.map((c) =>
+                        c.sha256 === clip.sha256 ? { ...c, motion } : c,
+                      ),
+                    })
+                  }
+                />
               )}
               <ol className="sync-flow">
                 <li>

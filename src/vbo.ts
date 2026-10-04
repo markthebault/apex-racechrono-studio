@@ -175,7 +175,8 @@ export function decodeVbo(
     if (!named.some(([n]) => n === i) && extra.get(i)!.every(Number.isFinite))
       channels.push({
         id: `Raw column ${names[i]}`,
-        name: `Raw column ${names[i]}`,
+        name:
+          definitions[`Raw column ${names[i]}`]?.name || `Raw column ${names[i]}`,
         unit: "raw",
         times,
         values: Float64Array.from(extra.get(i)!),

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "catalog": "node scripts/catalog.mjs",
-    "deploy": "sh scripts/deploy.sh"
+    "deploy": "sh scripts/deploy.sh",
+    "deploy:pages": "node scripts/deploy-pages.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",
@@ -17,13 +18,15 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.20",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^5.0.0",
     "fake-indexeddb": "^6.2.5",
     "prettier": "^3.9.9",

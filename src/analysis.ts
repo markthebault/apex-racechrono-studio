@@ -251,14 +251,156 @@ export function atDistance(
   return interpolate(t.distance, values, distance);
 }
 
-// Longitudinal acceleration (g) at or below this counts as braking. On two sample
+// Longitudinal acceleration (g) at or below this can be braking. On two sample
 // Nordschleife laps -0.1 g flags about 18% of the lap, -0.2 g about 12%, -0.3 g about 10%.
 export const BRAKE_G = -0.2;
+// Deceleration at which the braking colour is darkest. On three real Nordschleife sessions
+// 1.2 g was passed by 1% of the braking samples.
+export const BRAKE_HARD = 1.2;
+// GPS speed cannot tell braking from lifting off: a car coasting from 160 km/h slows by
+// 0.3 to 0.5 g too. A calculated zone therefore counts only if the car sheds at least this
+// share of its entry speed. A recorded brake channel is used as it is.
+export const BRAKE_MIN_LOSS = 0.12;
+// A recorded brake channel is on above this share of its highest value in the lap.
+const BRAKE_ON = 0.1;
+
+export type BrakeSignal = {
+  // 1 where the car is braking.
+  on: Uint8Array;
+  // 0 to 1: light to hard braking, NaN where unknown.
+  strength: Float64Array;
+  // True when it comes from a brake channel in the file, false when calculated from speed.
+  recorded: boolean;
+};
+
+// Consecutive flagged samples as index ranges. Gaps shorter than `bridge` metres are closed,
+// and nothing is joined across a GPS outage.
+function flaggedRuns(
+  t: Trace,
+  flag: (i: number) => boolean,
+  bridge: number,
+): [number, number][] {
+  const runs: [number, number][] = [];
+  for (let i = 0; i < t.times.length; i++) {
+    if (!flag(i)) continue;
+    const last = runs.at(-1);
+    if (
+      last &&
+      t.distance[i] - t.distance[last[1]] <= bridge &&
+      t.times[i] - t.times[last[1]] <= 2000
+    )
+      last[1] = i;
+    else runs.push([i, i]);
+  }
+  return runs;
+}
+
+// The brake channel of a lap when there is one: a VBO column or a logged channel with
+// "brake" in its name. RaceChrono archives do not name their channels.
+function brakeChannel(t: Trace) {
+  const id = Object.keys(t.channels).find((k) => /brake/i.test(k));
+  return id ? t.channels[id] : undefined;
+}
+
+const signals = new WeakMap<Trace, BrakeSignal>();
+export function brakeSignal(t: Trace): BrakeSignal {
+  const known = signals.get(t);
+  if (known) return known;
+  const n = t.times.length,
+    on = new Uint8Array(n),
+    strength = new Float64Array(n).fill(NaN);
+  let recorded = false,
+    peak = 0;
+  const channel = brakeChannel(t);
+  if (channel)
+    for (const v of channel) if (Number.isFinite(v)) peak = Math.max(peak, v);
+  if (channel && peak > 0) {
+    recorded = true;
+    for (let i = 0; i < n; i++)
+      if (Number.isFinite(channel[i])) {
+        strength[i] = Math.min(1, Math.max(0, channel[i] / peak));
+        on[i] = channel[i] > BRAKE_ON * peak ? 1 : 0;
+      }
+  } else if (t.channels.acceleration) {
+    const g = t.channels.acceleration,
+      speed = t.channels.speed;
+    for (let i = 0; i < n; i++)
+      strength[i] = Number.isFinite(g[i])
+        ? Math.min(1, Math.max(0, (-g[i] + BRAKE_G) / (BRAKE_HARD + BRAKE_G)))
+        : NaN;
+    for (const [from, to] of flaggedRuns(t, (i) => g[i] <= BRAKE_G, 15)) {
+      let low = Infinity;
+      if (speed) for (let i = from; i <= to; i++) low = Math.min(low, speed[i]);
+      const entry = speed?.[from];
+      const lifted =
+        entry !== undefined &&
+        Number.isFinite(entry) &&
+        Number.isFinite(low) &&
+        entry - low < BRAKE_MIN_LOSS * entry;
+      if (!lifted)
+        for (let i = from; i <= to; i++) if (g[i] <= BRAKE_G) on[i] = 1;
+    }
+  }
+  const signal = { on, strength, recorded };
+  signals.set(t, signal);
+  return signal;
+}
+
 export function isBraking(t: Trace, distance: number) {
-  const g = t.channels.acceleration;
-  if (!g) return false;
-  const v = atDistance(t, g, distance);
-  return Number.isFinite(v) && v <= BRAKE_G;
+  const { on } = brakeSignal(t);
+  let i = lower(t.distance, distance);
+  if (i >= on.length) i = on.length - 1;
+  if (i > 0 && distance - t.distance[i - 1] < t.distance[i] - distance) i--;
+  return on[i] === 1;
+}
+
+// Stretches of a lap under braking, as sample index ranges. Gaps shorter than `bridge` metres
+// are closed so one zone is not drawn as several, and runs shorter than `minLength` metres
+// are dropped as noise.
+export function brakingRuns(
+  t: Trace,
+  minLength = 8,
+  bridge = 15,
+): [number, number][] {
+  const { on } = brakeSignal(t);
+  return flaggedRuns(t, (i) => on[i] === 1, bridge).filter(
+    ([from, to]) => t.distance[to] - t.distance[from] >= minLength,
+  );
+}
+
+// Braking strength along one run (sample indices from..to), averaged over `half` samples
+// either side so the colour changes steadily along the zone instead of flickering.
+export function smoothedBrake(t: Trace, from: number, to: number, half = 3) {
+  const { strength } = brakeSignal(t);
+  return Array.from({ length: to - from + 1 }, (_, k) => {
+    let sum = 0,
+      n = 0;
+    for (
+      let i = Math.max(from, from + k - half);
+      i <= Math.min(to, from + k + half);
+      i++
+    )
+      if (Number.isFinite(strength[i])) {
+        sum += strength[i];
+        n++;
+      }
+    return n ? sum / n : NaN;
+  });
+}
+
+// Light red for weak braking, dark red for hard braking. `strength` is 0 to 1.
+export function brakeColor(strength: number) {
+  const x = Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 0;
+  return `hsl(0 90% ${Math.round(78 - x * 50)}%)`;
+}
+
+// The speed range of the map colours, km/h. Blue is the top of it, red the bottom.
+export const SPEED_SCALE = [40, 300] as const;
+export function speedColor(kmh: number) {
+  if (!Number.isFinite(kmh)) return "#8a9aa3";
+  const [low, high] = SPEED_SCALE,
+    x = Math.min(1, Math.max(0, (kmh - low) / (high - low)));
+  return `hsl(${Math.round(x * 240)} 90% 55%)`;
 }
 // Compass heading in degrees of the direction of travel, from 10 m either side.
 export function bearing(t: Trace, distance: number) {
@@ -308,7 +450,7 @@ export function nearestOnTrace(
 }
 
 // Arrow keys move the cursor by elapsed time; Shift multiplies the step.
-export const STEP_MS = 200;
+export const STEP_MS = 50;
 export const SHIFT_STEP_FACTOR = 10;
 export function stepCursor(
   t: Trace,

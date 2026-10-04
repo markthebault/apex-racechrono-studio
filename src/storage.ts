@@ -27,6 +27,60 @@ export async function updateSession(session: Session) {
   if (!record) throw Error("Session not found.");
   await d.put("sessions", { session, file: record.file });
 }
+// Remove the stored recording and its references together, retaining shared videos.
+export async function removeSession(
+  session: Session,
+  settings: Settings,
+  sync: SyncFile,
+) {
+  const lapIds = new Set(session.laps.map((lap) => lap.id));
+  const ownsLap = (id: string) =>
+    lapIds.has(id) || id.startsWith(session.id + ":");
+  const nextSettings: Settings = {
+    ...settings,
+    a: ownsLap(settings.a) ? "" : settings.a,
+    b: ownsLap(settings.b) ? "" : settings.b,
+    collection: settings.collection.filter((id) => id !== session.id),
+    excluded: settings.excluded.filter((id) => !ownsLap(id)),
+    included: settings.included.filter((id) => !ownsLap(id)),
+    layouts: settings.layouts.filter((layout) => !ownsLap(layout.referenceId)),
+    ...(settings.extras && {
+      extras: settings.extras.filter((lap) => !ownsLap(lap.id)),
+    }),
+  };
+  const nextSync: SyncFile = {
+    ...sync,
+    bindings: sync.bindings.filter((b) => b.session.sha256 !== session.id),
+  };
+  const keptVideos = new Set(
+    nextSync.bindings.flatMap((b) => b.clips.map((clip) => clip.sha256)),
+  );
+  const removedVideos = [
+    ...new Set(
+      sync.bindings
+        .filter((b) => b.session.sha256 === session.id)
+        .flatMap((b) => b.clips.map((clip) => clip.sha256))
+        .filter((hash) => !keptVideos.has(hash)),
+    ),
+  ];
+  const d = await db;
+  const tx = d.transaction(["sessions", "state", "handles"], "readwrite");
+  try {
+    await tx.objectStore("sessions").delete(session.id);
+    await tx.objectStore("state").put(nextSettings, "settings");
+    await tx.objectStore("state").put(nextSync, "sync");
+    for (const hash of removedVideos)
+      await tx.objectStore("handles").delete(hash);
+    await tx.done;
+  } catch (e) {
+    try {
+      tx.abort();
+    } catch {}
+    await tx.done.catch(() => {});
+    throw e;
+  }
+  return { settings: nextSettings, sync: nextSync, removedVideos };
+}
 export async function commitProject(
   records: { session: Session; file: Blob }[],
   settings: Settings,
@@ -139,6 +193,18 @@ export function validateSync(v: any): SyncFile {
         c.start < end
       )
         throw Error("Invalid or overlapping video clips.");
+      if (
+        c.motion &&
+        (!["none", "auto", "gopro", "dji", "insta360"].includes(
+          c.motion.camera,
+        ) ||
+          !Number.isInteger(c.motion.axis) ||
+          c.motion.axis < 0 ||
+          c.motion.axis > 2 ||
+          typeof c.motion.invert !== "boolean" ||
+          !Number.isFinite(c.motion.baseline))
+      )
+        throw Error("Invalid camera telemetry settings.");
       end = c.start + c.duration;
     }
     for (const a of b.anchors)
@@ -168,6 +234,16 @@ export function validateSync(v: any): SyncFile {
         ...identityOnly(c),
         duration: c.duration,
         start: c.start,
+        ...(c.motion
+          ? {
+              motion: {
+                camera: c.motion.camera,
+                axis: c.motion.axis,
+                invert: c.motion.invert,
+                baseline: c.motion.baseline,
+              },
+            }
+          : {}),
       })),
       anchors: b.anchors.map((a: any) => ({
         videoSeconds: a.videoSeconds,
@@ -195,26 +271,28 @@ export function stampAtVideo(binding: Binding, seconds: number) {
     : 0.001;
   return a.sessionTimestamp + (seconds - a.videoSeconds) / rate;
 }
-export async function exportProject(settings: Settings, sync: SyncFile) {
-  const records = (await load()).records;
+export async function createProject(
+  settings: Settings,
+  sync: SyncFile,
+  records?: { session: Session; file: Blob }[],
+) {
+  records ??= (await load()).records;
+  validateSettings(settings);
+  const portableSync = validateSync(sync);
   const files: Record<string, Uint8Array> = {
     "project.json": strToU8(
       JSON.stringify({
         format: "apex-project",
         version: 1,
         settings,
-        sync,
+        sync: portableSync,
         sessions: records.map((r) => ({
           id: r.session.id,
           filename: r.session.filename,
-          ...(r.session.format === "vbo" || r.session.trackEdited
-            ? {
-                track: r.session.track,
-                trackId: r.session.trackId,
-                line: r.session.line,
-                trackEdited: r.session.trackEdited,
-              }
-            : {}),
+          track: r.session.track,
+          trackId: r.session.trackId,
+          line: r.session.line,
+          trackEdited: r.session.trackEdited,
         })),
       }),
     ),
@@ -223,12 +301,30 @@ export async function exportProject(settings: Settings, sync: SyncFile) {
     files[
       `sessions/${r.session.id}.${r.session.format === "vbo" ? "vbo" : "rcz"}`
     ] = new Uint8Array(await r.file.arrayBuffer());
-  download("track-day.apex.zip", zipSync(files) as BlobPart, "application/zip");
+  return new Blob([zipSync(files) as BlobPart], { type: "application/zip" });
 }
-export async function readProject(file: File) {
+export async function exportProject(settings: Settings, sync: SyncFile) {
+  download(
+    "track-day.apex.zip",
+    await createProject(settings, sync),
+    "application/zip",
+  );
+}
+export async function readProject(
+  file: File,
+  decodeFile = (file: File) => work<Session>("decode", { file }),
+) {
+  if (file.size > 512 * 1024 * 1024) throw Error("Project archive too large.");
+  let total = 0;
   const z = unzipSync(new Uint8Array(await file.arrayBuffer()), {
     filter: (f) => {
-      if (f.originalSize > 256 * 1024 * 1024)
+      if (
+        f.name !== "project.json" &&
+        !/^sessions\/[a-f0-9]{64}\.(?:rcz|vbo)$/.test(f.name)
+      )
+        return false;
+      total += f.originalSize;
+      if (f.originalSize > 256 * 1024 * 1024 || total > 512 * 1024 * 1024)
         throw Error("Project entry too large.");
       return true;
     },
@@ -247,12 +343,21 @@ export async function readProject(file: File) {
   validateSettings(manifest.settings);
   manifest.sync = validateSync(manifest.sync);
   const records = [];
+  const ids = new Set<string>();
   for (const entry of manifest.sessions) {
+    if (
+      !entry ||
+      !/^[a-f0-9]{64}$/.test(entry.id) ||
+      typeof entry.filename !== "string" ||
+      ids.has(entry.id)
+    )
+      throw Error("Invalid or duplicate project session.");
+    ids.add(entry.id);
     const bytes =
       z[`sessions/${entry.id}.rcz`] ?? z[`sessions/${entry.id}.vbo`];
     if (!bytes) throw Error("Project session is missing.");
     const f = new File([bytes as BlobPart], entry.filename);
-    let session = await work<Session>("decode", { file: f });
+    let session = await decodeFile(f);
     if (session.id !== entry.id) throw Error("Project session hash mismatch.");
     // A VBO carries no laps, and a track can be chosen by hand, so both travel in the manifest.
     if (entry.track !== undefined && Number.isFinite(entry.trackId))
@@ -268,6 +373,7 @@ export async function readProject(file: File) {
   }
   return { manifest, records };
 }
+export type LoadedProject = Awaited<ReturnType<typeof readProject>>;
 
 export function validateSettings(s: any) {
   const list = (x: any) =>
@@ -295,6 +401,8 @@ export function validateSettings(s: any) {
     )
   )
     throw Error("Invalid saved charts.");
+  if (s.showEmptyCharts !== undefined && typeof s.showEmptyCharts !== "boolean")
+    throw Error("Invalid empty-chart preference.");
   if (
     !Array.isArray(s.layouts) ||
     s.layouts.some(

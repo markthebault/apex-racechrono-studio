@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Trace, Comparison } from "./model";
+import type { BrakeMarker } from "./telemetry";
 import { hoverBus } from "./hover";
 import {
   interpolate,
@@ -10,6 +11,14 @@ import {
   bearing,
   nearestOnTrace,
   BRAKE_G,
+  brakingRuns,
+  brakeSignal,
+  brakeColor,
+  smoothedBrake,
+  BRAKE_HARD,
+  BRAKE_MIN_LOSS,
+  speedColor,
+  SPEED_SCALE,
 } from "./analysis";
 
 const safe = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? c : "#63e5d2");
@@ -36,9 +45,11 @@ export function TrackMap({
   cursor,
   range,
   gates,
+  brakeMarkers = [],
   onCursor,
   height,
   onHeight,
+  speedUnit = "km/h",
 }: {
   a?: Trace;
   colors?: [string, string];
@@ -46,17 +57,23 @@ export function TrackMap({
   cursor: number;
   range: [number, number];
   gates: number[];
+  brakeMarkers?: BrakeMarker[];
   onCursor: (d: number) => void;
   height: number;
   onHeight: (h: number) => void;
+  speedUnit?: "km/h" | "mph";
 }) {
   const el = useRef<HTMLDivElement>(null),
     map = useRef<L.Map | null>(null),
     layers = useRef<L.LayerGroup | null>(null),
     markers = useRef<L.LayerGroup | null>(null),
-    ghosts = useRef<L.LayerGroup | null>(null);
+    ghosts = useRef<L.LayerGroup | null>(null),
+    brakingMarkers = useRef<L.LayerGroup | null>(null);
   // Distance under the pointer on a chart. Ghost cars mark it on every lap.
   const [ghost, setGhost] = useState<number | null>(null);
+  // Lap A can be coloured by speed and have its braking zones marked in red.
+  const [showSpeed, setShowSpeed] = useState(false),
+    [showBrake, setShowBrake] = useState(false);
   useEffect(() => hoverBus.subscribe(setGhost), []);
   // The click handler reads the latest props through this ref.
   const latest = useRef({ a, others, range, onCursor });
@@ -95,6 +112,7 @@ export function TrackMap({
     layers.current = L.layerGroup().addTo(m);
     markers.current = L.layerGroup().addTo(m);
     ghosts.current = L.layerGroup().addTo(m);
+    brakingMarkers.current = L.layerGroup().addTo(m);
     const observer = new ResizeObserver(() => m.invalidateSize());
     observer.observe(el.current!);
     return () => {
@@ -113,6 +131,7 @@ export function TrackMap({
       [a, colors[0]],
     ];
     for (const [t, color] of drawn) {
+      const bySpeed = showSpeed && t === a && !!t.channels.speed;
       let line: L.LatLngTuple[] = [];
       const flush = () => {
         if (line.length > 1)
@@ -124,17 +143,60 @@ export function TrackMap({
           }).addTo(group!);
         line = [];
       };
-      for (let i = 0; i < t.lat.length; i += 5) {
+      for (let i = 0; i < t.lat.length; i += bySpeed ? 3 : 5) {
+        const j = i - (bySpeed ? 3 : 5);
         if (
           !Number.isFinite(t.lat[i]) ||
-          (i >= 5 && t.times[i] - t.times[i - 5] > 2000)
+          (j >= 0 && t.times[i] - t.times[j] > 2000)
         ) {
           flush();
+          continue;
+        }
+        if (bySpeed) {
+          // One short piece per step, coloured by the speed in the middle of it.
+          if (j >= 0 && Number.isFinite(t.lat[j]))
+            L.polyline(
+              [
+                [t.lat[j], t.lon[j]],
+                [t.lat[i], t.lon[i]],
+              ],
+              {
+                color: speedColor(
+                  t.channels.speed[i - 1] ?? t.channels.speed[i],
+                ),
+                weight: 5,
+                opacity: 1,
+                lineCap: "butt",
+                interactive: false,
+              },
+            ).addTo(group!);
           continue;
         }
         line.push([t.lat[i], t.lon[i]]);
       }
       flush();
+    }
+    if (showBrake) {
+      // One piece per sample, from light red where the braking starts to fade to dark red
+      // where the deceleration is strongest.
+      for (const [from, to] of brakingRuns(a)) {
+        const g = smoothedBrake(a, from, to);
+        for (let i = from + 1; i <= to; i++)
+          if (Number.isFinite(a.lat[i - 1]) && Number.isFinite(a.lat[i]))
+            L.polyline(
+              [
+                [a.lat[i - 1], a.lon[i - 1]],
+                [a.lat[i], a.lon[i]],
+              ],
+              {
+                color: brakeColor(g[i - from]),
+                weight: 7,
+                opacity: 1,
+                lineCap: "round",
+                interactive: false,
+              },
+            ).addTo(group!);
+      }
     }
     for (let i = 0; i < gates.length; i++) {
       const d = gates[i],
@@ -149,7 +211,7 @@ export function TrackMap({
           }),
         }).addTo(group!);
     }
-  }, [a, lapKey, gates, colors[0]]);
+  }, [a, lapKey, gates, colors[0], showSpeed, showBrake]);
   // The view follows the zoom window. While the window scrolls during playback this runs
   // every few milliseconds, so refitting is limited to a few times a second.
   const fitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -231,12 +293,84 @@ export function TrackMap({
         }).addTo(ghosts.current!);
     }
   }, [ghost, a, others, colors[0]]);
+  useEffect(() => {
+    brakingMarkers.current?.clearLayers();
+    for (const point of brakeMarkers) {
+      const lat = atDistance(point.trace, point.trace.lat, point.distance),
+        lon = atDistance(point.trace, point.trace.lon, point.distance);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      L.marker([lat, lon], {
+        icon: L.divIcon({
+          className: "brake-point-marker",
+          html: `<span style="border-color:${safe(point.color)}">${point.label}</span>`,
+          iconSize: [30, 20],
+          iconAnchor: [15, 24],
+        }),
+        keyboard: false,
+      })
+        .bindTooltip(
+          `${point.label} · braking starts at ${Math.round(point.distance)} m`,
+        )
+        .on("click", () => latest.current.onCursor(point.distance))
+        .addTo(brakingMarkers.current!);
+    }
+  }, [brakeMarkers]);
+  const recorded = a ? brakeSignal(a).recorded : false;
   return (
     <div className="map-shell" style={{ height }}>
       <div ref={el} className="map" />
       <div className="map-tag">
         <span className="live-dot" /> GPS TRACE <span>OpenStreetMap</span>
       </div>
+      {a && (
+        <div className="map-tools">
+          <button
+            type="button"
+            aria-pressed={showBrake}
+            disabled={!recorded && !a.channels.acceleration}
+            title={
+              recorded
+                ? "Mark where the brake channel of lap A is on"
+                : `Mark where lap A brakes harder than ${-BRAKE_G} g and sheds at least ${Math.round(BRAKE_MIN_LOSS * 100)}% of its speed. Lifting off does not count.`
+            }
+            onClick={() => setShowBrake(!showBrake)}
+          >
+            <i className="brake" />
+            Braking zones
+          </button>
+          {showBrake && (
+            <div className="scale">
+              <div className="brake-ramp" />
+              <span>
+                {recorded
+                  ? "Recorded brake channel · light red for a light touch, dark red for full braking"
+                  : `${-BRAKE_G} g · ${BRAKE_HARD} g · light red where braking fades, dark red where hardest`}
+              </span>
+            </div>
+          )}
+          <button
+            type="button"
+            aria-pressed={showSpeed}
+            disabled={!a.channels.speed}
+            title="Colour lap A by speed"
+            onClick={() => setShowSpeed(!showSpeed)}
+          >
+            <i className="speed" />
+            Speed colours
+          </button>
+          {showSpeed && (
+            <div className="scale">
+              <div className="speed-ramp" />
+              <span>
+                {SPEED_SCALE.map((v) =>
+                  Math.round(speedUnit === "mph" ? v / 1.609344 : v),
+                ).join(" – ")}{" "}
+                {speedUnit} · red slow, blue fast
+              </span>
+            </div>
+          )}
+        </div>
+      )}
       {a && (
         <div className="map-legend">
           {[
@@ -250,7 +384,9 @@ export function TrackMap({
           ))}
           <span>
             <i className="brake" />
-            Braking below {BRAKE_G} g
+            {recorded
+              ? "Braking (brake channel)"
+              : `Braking below ${BRAKE_G} g`}
           </span>
         </div>
       )}
