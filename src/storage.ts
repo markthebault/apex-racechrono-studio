@@ -195,7 +195,9 @@ export function validateSync(v: any): SyncFile {
         throw Error("Invalid or overlapping video clips.");
       if (
         c.motion &&
-        (!["none", "gopro"].includes(c.motion.camera) ||
+        (!["none", "auto", "gopro", "dji", "insta360"].includes(
+          c.motion.camera,
+        ) ||
           !Number.isInteger(c.motion.axis) ||
           c.motion.axis < 0 ||
           c.motion.axis > 2 ||

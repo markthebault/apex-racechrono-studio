@@ -67,7 +67,7 @@ export type Clip = Identity & {
   duration: number;
   start: number;
   motion?: {
-    camera: "none" | "gopro";
+    camera: "none" | "auto" | "gopro" | "dji" | "insta360";
     axis: number;
     invert: boolean;
     baseline: number;

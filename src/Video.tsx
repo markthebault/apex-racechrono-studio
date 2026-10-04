@@ -301,7 +301,7 @@ export function VideoPanel({
           types: [
             {
               description: "Videos",
-              accept: { "video/*": [".mp4", ".mov", ".webm"] },
+              accept: { "video/*": [".mp4", ".mov", ".webm", ".insv", ".osv"] },
             },
           ],
         });
@@ -464,7 +464,7 @@ export function VideoPanel({
         hidden
         ref={input}
         type="file"
-        accept="video/*"
+        accept="video/*,.mp4,.mov,.webm,.insv,.osv"
         multiple
         onChange={(e) => {
           const chosen = Array.from(e.target.files || []);
