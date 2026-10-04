@@ -76,13 +76,11 @@ describe("Google Drive portable storage", () => {
     ).toBe(true);
   });
   it("never sends a token to an unexpected upload host", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(null, {
-          headers: { Location: "https://example.com/upload" },
-        }),
-      );
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(null, {
+        headers: { Location: "https://example.com/upload" },
+      }),
+    );
     vi.stubGlobal("fetch", fetch);
     await expect(
       saveDriveProject("test-token", new Blob(["zip"]), "Track"),
@@ -119,6 +117,120 @@ describe("Google Drive portable storage", () => {
         size: String(513 * 1024 * 1024),
       }),
     ).rejects.toThrow(/too large/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("regular Drive saves and folders", () => {
+  it("creates the archive in the selected folder without touching other files", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          headers: {
+            Location:
+              "https://www.googleapis.com/upload/drive/v3/files?upload_id=new",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          id: "saved",
+          name: "Lap.apex.zip",
+          version: "1",
+          parents: ["folder"],
+        }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    await saveDriveProject(
+      "token",
+      new Blob(["archive"]),
+      "Lap",
+      undefined,
+      undefined,
+      { folderId: "folder" },
+    );
+    expect(JSON.parse(fetch.mock.calls[0][1].body).parents).toEqual(["folder"]);
+    expect(fetch.mock.calls[0][1].method).toBe("POST");
+  });
+  it("updates only the selected app-created file after checking its version", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          id: "saved",
+          name: "Lap.apex.zip",
+          version: "8",
+          appProperties: { apexProject: "1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          headers: {
+            Location:
+              "https://www.googleapis.com/upload/drive/v3/files/saved?upload_id=update",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ id: "saved", name: "Lap.apex.zip", version: "9" }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    const saved = await saveDriveProject(
+      "token",
+      new Blob(["new archive"]),
+      "Lap",
+      undefined,
+      undefined,
+      { target: { id: "saved", name: "Lap.apex.zip", version: "8" } },
+    );
+    expect(saved.version).toBe("9");
+    expect(fetch.mock.calls[1][0]).toContain("/files/saved?");
+    expect(fetch.mock.calls[1][1].method).toBe("PATCH");
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({
+      name: "Lap.apex.zip",
+    });
+  });
+  it("stops before uploading if another device changed the file", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({
+          id: "saved",
+          version: "9",
+          appProperties: { apexProject: "1" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      saveDriveProject(
+        "token",
+        new Blob(["archive"]),
+        "Lap",
+        undefined,
+        undefined,
+        { target: { id: "saved", name: "Lap", version: "8" } },
+      ),
+    ).rejects.toThrow(/changed elsewhere/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("never overwrites an unrelated file or a trashed archive", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({ id: "other", version: "1", appProperties: {} }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      saveDriveProject(
+        "token",
+        new Blob(["archive"]),
+        "Lap",
+        undefined,
+        undefined,
+        { target: { id: "other", name: "Other", version: "1" } },
+      ),
+    ).rejects.toThrow(/not an available Apex/);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
