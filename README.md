@@ -63,7 +63,9 @@ The **Optimal lap** tab shows **Opportunities**: the fastest lap against the bes
 8. Download `.rcsync.json` for a small sidecar containing session and video filenames, sizes, SHA-256 hashes, clip order, duration, and anchors. It contains no session or video bytes.
 9. Reopen the sync file. Sessions already in IndexedDB are reused. Import missing RCZ files and reselect videos when necessary. A matching hash accepts a renamed video; the saved binding is not overwritten by a wrong file. Use **Unlink** to remove an old binding before replacing the recording with different footage.
 
-**Export project** creates `.apex.zip` with the original RCZ files, layout, chart settings, and sync data. It excludes video contents. Use it as the portable backup; browser storage can be cleared by the browser or user. Wait for **Saved locally** before closing. File handles are reused where supported and permission is granted. HTTP previews may require manual reselection.
+**Download session file** creates `.apex.zip` with the complete original RCZ/VBO files, layout, chart settings, and video sync data. It excludes video contents. Reimport opens a review dialog with GPS counts, channels, laps and video links before anything is committed. Choose the original local videos in that dialog to restore playback; full hashes also recognize renamed originals. Use it as the portable backup; browser storage can be cleared by the browser or user. Wait for **Saved locally** before closing. File handles are reused where supported and permission is granted. HTTP previews may require manual reselection.
+
+The video sync panel offers matching frames, braking events, recording time, embedded GPS UTC and GPS route matching. Choose GoPro GPMF, DJI metadata or Insta360 trailer/CAMM per clip, or detect the format. Only recorded accelerometer samples supply camera G-forces; gyro and fusion orientation describe rotation. DJI Action 4/5/6 accelerometer/GPS schemas are supported. Insta360 trailers support raw and floating-point IMU and GPS with a timing reference; retimed files are rejected. CAMM supports motion and GPS route matching; GPS epoch values are not assumed to be UTC. Original camera files are needed when app exports remove telemetry. Browser codec support determines playback.
 
 The format uses `format: "apex-sync"`, `version: 1`, and `bindings[]`. Each binding has a `session` identity, ordered `clips[]`, and zero to two `anchors[]` with `videoSeconds` and Unix `sessionTimestamp` in milliseconds. One anchor defines offset; two define an affine time mapping. Project format is `apex-project`, version 1.
 
@@ -118,10 +120,24 @@ This is how the maintainer keeps a copy running. It is optional; the app is stat
 3. Put your address in an untracked `.env.deploy`, for example `APEX_PUBLIC_URL=https://my-host.my-tailnet.ts.net:5173`. `APEX_RUNTIME` and `APEX_LABEL` override the defaults.
 4. Run `npm run deploy` after every change.
 
-The service serves only the production build. The development-only recording endpoints are not exposed. Browser storage is tied to the exact origin, so sessions saved under one address do not appear under another. Move them with **Export project** and **Import sessions**.
+The service serves only the production build. The development-only recording endpoints are not exposed. Browser storage is tied to the exact origin, so sessions saved under one address do not appear under another. Move them with **Download session file** and **Import sessions**.
 
 ## Data and license
 
 Application code: MIT, see `LICENSE`. The included track catalog is derived from OpenStreetMap and is licensed under the Open Database License 1.0. Attribution: © OpenStreetMap contributors, https://www.openstreetmap.org/copyright.
 
-RaceChrono recordings, GPS traces and videos are personal data. The repository contains none, and the app keeps them in your browser. Do not commit them.
+RaceChrono recordings, GPS traces and videos are personal data. The repository contains none. The app keeps them in your browser; saving to Google Drive uploads the session archive you choose to save. Videos stay local. Do not commit recordings.
+
+## Optional Google Drive storage
+
+The **Google Drive** button connects a user's Google account, saves a new portable session archive to their Drive, lists app-created archives and opens one through the same review dialog as a local import. Saves include complete RCZ/VBO recordings and video timing. Videos stay local. Each save makes a new copy; existing Drive files are not overwritten or deleted.
+
+Configure a Google **Web application** OAuth client in the intended Cloud project, enable the Drive API, and register the exact HTTPS site origin (plus your localhost development origin when needed). The Google Auth Platform consent configuration must allow the intended users and the `https://www.googleapis.com/auth/drive.file` scope. Use the site's `/privacy.html` page for the app's data policy. If the Google app is in testing mode, add the intended accounts as test users.
+
+Put `VITE_GOOGLE_CLIENT_ID` in untracked `.env.local` for development and in a build secret for deployment. The client ID is a public browser identifier; client secrets, account credentials and access tokens do not belong in the frontend. Google Identity Services provides a short-lived token after an explicit user action. The app keeps that token only in memory and asks the user to reconnect when it expires. No client secret, service account or application backend is required. Without a configured client ID, local download/import remains available and Drive displays its setup status.
+
+## Cloudflare Pages deployment
+
+Publish only `dist/`. The `deploy:pages` script reads the API token from the environment or a local credential file, and account/project/public-address settings from the environment or untracked `.env.pages`. Required keys are `CLOUDFLARE_API_TOKEN` (or `CLOUDFLARE_TOKEN`), `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_PAGES_PROJECT`. `CLOUDFLARE_TOKEN_FILE` can point at a separate credential file. `APEX_PAGES_PUBLIC_URL` enables verification of the exact built JavaScript asset at the public address.
+
+The GitHub workflow runs tests and a build on pull requests. On `main` it deploys using repository secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and optional `VITE_GOOGLE_CLIENT_ID`, plus repository variables `CLOUDFLARE_PAGES_PROJECT` and `APEX_PAGES_PUBLIC_URL`. Pull request validation receives no deployment credentials. Create the Pages project and attach its intended custom domain before the first upload. The existing local HTTPS service remains a separate deployment.

@@ -4,6 +4,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   ChevronRight,
+  Cloud,
   Flag,
   FolderOpen,
   Layers,
@@ -47,6 +48,7 @@ import {
   work,
   download,
   exportProject,
+  createProject,
   readProject,
   commitProject,
   validateSync,
@@ -87,6 +89,7 @@ import { ProjectImportDialog } from "./ProjectImportDialog";
 import type { ImportDecision } from "./ProjectImportDialog";
 import type { LoadedProject } from "./storage";
 import { matchProjectVideos } from "./projectVideos";
+import { GoogleDriveDialog } from "./GoogleDriveDialog";
 const defaults: Settings = {
   speedUnit: "km/h",
   colors: ["#63e5d2", "#f8a36b"],
@@ -145,6 +148,7 @@ export default function App() {
     [busyB, setBusyB] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sourceFiles, setSourceFiles] = useState<Record<string, File>>({});
+  const [driveOpen, setDriveOpen] = useState(false);
   const [projectReview, setProjectReview] = useState<{
     project: LoadedProject;
     name: string;
@@ -1045,6 +1049,12 @@ export default function App() {
   };
   return (
     <div className="app">
+      <GoogleDriveDialog
+        open={driveOpen}
+        onClose={() => setDriveOpen(false)}
+        onCreate={() => createProject(settings, sync)}
+        onOpen={(file) => void importFiles([file])}
+      />
       {projectReview && (
         <ProjectImportDialog
           project={projectReview.project}
@@ -1171,6 +1181,9 @@ export default function App() {
             </span>
             <button onClick={() => exportProject(settings, sync).catch(report)}>
               <ArrowDownToLine size={14} /> Download session file
+            </button>
+            <button onClick={() => setDriveOpen(true)}>
+              <Cloud size={14} /> Google Drive
             </button>
             <button className="primary" onClick={() => input.current?.click()}>
               <Plus size={15} /> Import sessions
