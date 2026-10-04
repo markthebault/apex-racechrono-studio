@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
+import { Navigation, LocateFixed } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import type { Trace, Comparison } from "./model";
 import type { BrakeMarker } from "./telemetry";
@@ -69,6 +70,25 @@ export function TrackMap({
     markers = useRef<L.LayerGroup | null>(null),
     ghosts = useRef<L.LayerGroup | null>(null),
     brakingMarkers = useRef<L.LayerGroup | null>(null);
+  const [viewMode, setViewMode] = useState<"range" | "free" | "follow">(
+    "range",
+  );
+  const changingView = useRef(false);
+  const carPosition = a
+    ? ([
+        atDistance(a, a.lat, cursor),
+        atDistance(a, a.lon, cursor),
+      ] as L.LatLngTuple)
+    : undefined;
+  const hasCar = !!carPosition?.every(Number.isFinite);
+  function zoomToCar() {
+    if (!hasCar || !map.current || !carPosition) return;
+    // Keep following if enabled; otherwise stay at this view as the charts move.
+    setViewMode((mode) => (mode === "follow" ? mode : "free"));
+    changingView.current = true;
+    map.current.setView(carPosition, 17, { animate: false });
+    changingView.current = false;
+  }
   // Distance under the pointer on a chart. Ghost cars mark it on every lap.
   const [ghost, setGhost] = useState<number | null>(null);
   // Lap A can be coloured by speed and have its braking zones marked in red.
@@ -107,6 +127,11 @@ export function TrackMap({
         if (!best || px < best.px) best = { distance: n.distance, px };
       }
       if (best && best.px <= 30) onCursor(best.distance);
+    });
+    m.on("dragstart", () => setViewMode("free"));
+    m.on("zoomstart", () => {
+      if (!changingView.current)
+        setViewMode((mode) => (mode === "range" ? "free" : mode));
     });
     map.current = m;
     layers.current = L.layerGroup().addTo(m);
@@ -217,7 +242,7 @@ export function TrackMap({
   const fitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastFit = useRef(0);
   useEffect(() => {
-    if (!a) return;
+    if (!a || viewMode !== "range") return;
     const fit = () => {
       lastFit.current = Date.now();
       const coords: Array<[number, number]> = [];
@@ -228,15 +253,29 @@ export function TrackMap({
           Number.isFinite(a.lat[i])
         )
           coords.push([a.lat[i], a.lon[i]]);
-      if (coords.length)
+      if (coords.length) {
+        changingView.current = true;
         map.current?.fitBounds(coords, { padding: [35, 35], animate: false });
+        changingView.current = false;
+      }
     };
     clearTimeout(fitTimer.current);
     const wait = 350 - (Date.now() - lastFit.current);
     if (wait <= 0) fit();
     else fitTimer.current = setTimeout(fit, wait);
     return () => clearTimeout(fitTimer.current);
-  }, [a, range[0], range[1]]);
+  }, [a, range[0], range[1], viewMode]);
+  useEffect(() => {
+    // A different lap gets an overview unless the user is following its car.
+    setViewMode((mode) => (mode === "follow" ? mode : "range"));
+  }, [a?.id]);
+  useEffect(() => {
+    if (viewMode !== "follow" || !hasCar || !carPosition || !map.current)
+      return;
+    changingView.current = true;
+    map.current.panTo(carPosition, { animate: false });
+    changingView.current = false;
+  }, [viewMode, a, cursor, hasCar]);
   useEffect(() => {
     markers.current?.clearLayers();
     const cars: [Trace, string, string, number][] = [
@@ -322,6 +361,29 @@ export function TrackMap({
       <div className="map-tag">
         <span className="live-dot" /> GPS TRACE <span>OpenStreetMap</span>
       </div>
+      {a && (
+        <div className="map-camera-tools" role="group" aria-label="Map camera">
+          <button
+            type="button"
+            disabled={!hasCar}
+            aria-pressed={viewMode === "follow"}
+            title="Keep lap A's car centered. Drag the map to stop following."
+            onClick={() =>
+              setViewMode((mode) => (mode === "follow" ? "free" : "follow"))
+            }
+          >
+            <Navigation size={16} aria-hidden="true" /> Follow car
+          </button>
+          <button
+            type="button"
+            disabled={!hasCar}
+            title="Center and zoom in on lap A's car"
+            onClick={zoomToCar}
+          >
+            <LocateFixed size={16} aria-hidden="true" /> Zoom to car
+          </button>
+        </div>
+      )}
       {a && (
         <div className="map-tools">
           <button

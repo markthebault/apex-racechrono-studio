@@ -2747,3 +2747,60 @@ button.collection-name:focus-visible {
     width: 90px;
   }
 }
+
+.map-camera-tools {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 500;
+  display: flex;
+  gap: 6px;
+}
+.map-camera-tools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid #3e4c53;
+  border-radius: 7px;
+  background: #121c22f2;
+  color: #d5e2e7;
+  font-size: 11px;
+  box-shadow: 0 2px 8px #0004;
+}
+.map-camera-tools button:hover {
+  border-color: #63e5d2;
+  background: #1c3035;
+}
+.map-camera-tools button[aria-pressed="true"] {
+  background: #173e3b;
+  border-color: #63e5d2;
+  color: #8ceedd;
+}
+.map-camera-tools button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 600px) {
+  .map-camera-tools {
+    top: 66px;
+    right: 10px;
+    flex-direction: column;
+  }
+  .map-camera-tools button {
+    padding: 7px 9px;
+  }
+}
+
+.map-camera-tools ~ .map-legend {
+  top: 64px;
+  max-width: calc(100% - 190px);
+  max-height: calc(100% - 180px);
+  overflow: auto;
+}
+@media (max-width: 600px) {
+  .map-camera-tools ~ .map-legend {
+    top: 158px;
+  }
+}
