@@ -63,7 +63,16 @@ export type Layout = {
   generated: boolean;
 };
 export type Identity = { sha256: string; name: string; size: number };
-export type Clip = Identity & { duration: number; start: number };
+export type Clip = Identity & {
+  duration: number;
+  start: number;
+  motion?: {
+    camera: "none" | "gopro";
+    axis: number;
+    invert: boolean;
+    baseline: number;
+  };
+};
 export type Binding = {
   session: Identity;
   clips: Clip[];
@@ -111,7 +120,10 @@ export const definitions: Record<string, { name: string; unit: string }> = {
     name: "Engine oil temperature · OBD",
     unit: "raw",
   },
-  "Raw column intake_temp-obd": { name: "Intake temperature · OBD", unit: "raw" },
+  "Raw column intake_temp-obd": {
+    name: "Intake temperature · OBD",
+    unit: "raw",
+  },
   "Raw column engine_load-obd": { name: "Engine load · OBD", unit: "raw" },
 };
 export const lapTime = (ms: number) =>

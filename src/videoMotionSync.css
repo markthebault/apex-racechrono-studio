@@ -1,0 +1,85 @@
+.motion-sync {
+  padding: 16px;
+  margin: 14px 0;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: #111b29;
+}
+.motion-sync h4 {
+  margin: 0 0 8px;
+}
+.motion-sync p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.motion-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 12px 0;
+}
+.motion-controls label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.motion-graphs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.motion-graph {
+  background: #0b1220;
+  border-radius: 8px;
+  padding: 8px;
+}
+.motion-graph-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+.motion-graph-title span {
+  color: #67e8f9;
+  white-space: nowrap;
+}
+.motion-graph svg {
+  width: 100%;
+  cursor: crosshair;
+  display: block;
+}
+.motion-graph text {
+  fill: #94a3b8;
+  font-size: 11px;
+}
+.motion-grid {
+  stroke: #263548;
+  stroke-width: 1;
+}
+.motion-line {
+  stroke: #67e8f9;
+  stroke-width: 2;
+  fill: none;
+}
+.motion-cursor {
+  stroke: #fbbf24;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.motion-graphs input[type="range"] {
+  width: 100%;
+}
+.motion-graphs small {
+  font-size: 11px;
+  color: #94a3b8;
+}
+@media (max-width: 650px) {
+  .motion-graphs {
+    grid-template-columns: 1fr;
+  }
+}
+.motion-controls input[type="checkbox"] {
+  width: auto;
+}
