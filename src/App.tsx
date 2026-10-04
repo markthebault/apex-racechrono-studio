@@ -97,7 +97,7 @@ import { VideoPanel } from "./Video";
 import { ProjectImportDialog } from "./ProjectImportDialog";
 import type { ImportDecision } from "./ProjectImportDialog";
 import type { LoadedProject } from "./storage";
-import { matchProjectVideos } from "./projectVideos";
+import { matchProjectVideos, restoredVideoPosition } from "./projectVideos";
 import { GoogleDriveDialog } from "./GoogleDriveDialog";
 import { useGoogleDrive } from "./useGoogleDrive";
 const defaults: Settings = {
@@ -156,6 +156,10 @@ export default function App() {
     [busyA, setBusyA] = useState(false),
     [busyB, setBusyB] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [videoRestore, setVideoRestore] = useState<{
+    lapId: string;
+    timestamp: number;
+  } | null>(null);
   const [sourceFiles, setSourceFiles] = useState<Record<string, File>>({});
   const [driveOpen, setDriveOpen] = useState(false);
   const [projectReview, setProjectReview] = useState<{
@@ -499,6 +503,13 @@ export default function App() {
       setCursor(0);
     }
   }, [a?.id, a?.length]);
+  useEffect(() => {
+    if (!videoRestore || a?.id !== videoRestore.lapId) return;
+    setPlaying(false);
+    setExact(videoRestore.timestamp);
+    setCursor(interpolate(a.times, a.distance, videoRestore.timestamp));
+    setVideoRestore(null);
+  }, [videoRestore, a?.id]);
   const at = a ? (exact ?? interpolate(a.distance, a.times, cursor)) : 0;
   // Moving by position forgets the exact time; moving by time keeps it.
   const moveCursor = (d: number) => {
@@ -805,6 +816,24 @@ export default function App() {
               ),
             }));
             setSourceFiles((old) => ({ ...old, ...result.matched }));
+            const position = restoredVideoPosition(
+              p.records.map((r) => r.session),
+              p.manifest.sync,
+              Object.keys(result.matched),
+              p.manifest.settings.a,
+            );
+            if (position) {
+              setSettings((old) => ({
+                ...old,
+                a: position.lapId,
+                collection:
+                  old.collection.length &&
+                  !old.collection.includes(position.sessionId)
+                    ? [...old.collection, position.sessionId]
+                    : old.collection,
+              }));
+              setVideoRestore(position);
+            }
             setStatus(
               `Project restored. ${Object.keys(result.matched).length} original videos linked.`,
             );

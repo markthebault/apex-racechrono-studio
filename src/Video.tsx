@@ -489,6 +489,14 @@ export function VideoPanel({
           className={justSynced ? "flash" : undefined}
           controls={editing}
           preload="auto"
+          onLoadedMetadata={() => {
+            if (!editing && clip && Number.isFinite(vt) && video.current) {
+              video.current.currentTime = Math.max(
+                0,
+                Math.min(clip.duration, vt - clip.start),
+              );
+            }
+          }}
           onSeeked={() => onBusy(false)}
           onLoadedData={() => onBusy(false)}
           onWaiting={() => onBusy(true)}

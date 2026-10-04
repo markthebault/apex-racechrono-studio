@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { createProject, readProject } from "./storage";
-import { matchProjectVideos } from "./projectVideos";
+import { matchProjectVideos, restoredVideoPosition } from "./projectVideos";
 import type { Session, Settings, SyncFile } from "./model";
 const id = "a".repeat(64),
   video = "b".repeat(64);
@@ -120,5 +120,39 @@ describe("portable session archives", () => {
     expect(sync.bindings[0].anchors).toEqual([
       { videoSeconds: 0, sessionTimestamp: 1000 },
     ]);
+  });
+});
+
+describe("restored video playback", () => {
+  const laps = [
+    { id: "early", number: 1, start: 1000, end: 3000, issues: [] },
+    { id: "covered", number: 2, start: 3000, end: 7000, issues: [] },
+    { id: "later", number: 3, start: 7000, end: 9000, issues: [] },
+  ];
+  const saved = {
+    ...sync,
+    bindings: [
+      {
+        ...sync.bindings[0],
+        anchors: [{ videoSeconds: 0, sessionTimestamp: 5000 }],
+      },
+    ],
+  };
+  it("opens an overlapping lap at the saved recording start when the selected lap has no footage", () => {
+    expect(
+      restoredVideoPosition([{ ...session, laps }], saved, [video], "early"),
+    ).toEqual({ lapId: "covered", sessionId: id, timestamp: 5000 });
+    expect(saved.bindings[0].anchors).toEqual([
+      { videoSeconds: 0, sessionTimestamp: 5000 },
+    ]);
+  });
+  it("keeps the saved lap when it has footage and ignores missing originals", () => {
+    expect(
+      restoredVideoPosition([{ ...session, laps }], saved, [video], "later")
+        ?.timestamp,
+    ).toBe(7000);
+    expect(
+      restoredVideoPosition([{ ...session, laps }], saved, [], "later"),
+    ).toBeUndefined();
   });
 });

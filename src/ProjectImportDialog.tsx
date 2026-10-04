@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { FolderOpen, Film } from "lucide-react";
+import type { Binding } from "./model";
 import type { LoadedProject } from "./storage";
 import "./projectImport.css";
 export type ImportDecision = { files: File[]; openVideos: boolean };
@@ -11,6 +13,7 @@ export function ProjectImportDialog({
   name: string;
   onDecision: (decision: ImportDecision | null) => void;
 }) {
+  const videoInput = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const clips = [
@@ -94,20 +97,48 @@ export function ProjectImportDialog({
               </li>
             ))}
           </ul>
-          <label className="project-video-picker">
-            Choose local videos
+          <div className="project-video-picker">
             <input
+              ref={videoInput}
               type="file"
+              hidden
               multiple
+              aria-label="Choose local videos"
               accept="video/*,.mp4,.mov,.insv,.osv"
               onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             />
-          </label>
-          {files.length > 0 && (
-            <p role="status">
-              {files.length} selected: {files.map((f) => f.name).join(", ")}
-            </p>
-          )}
+            <button
+              type="button"
+              className="project-video-button"
+              onClick={() => videoInput.current?.click()}
+            >
+              <FolderOpen size={18} aria-hidden="true" />
+              {files.length ? "Change videos" : "Choose videos"}
+            </button>
+            <div
+              className="project-video-selection"
+              role="status"
+              aria-live="polite"
+            >
+              {files.length ? (
+                <>
+                  <strong>
+                    <Film size={15} aria-hidden="true" />
+                    {files.length}{" "}
+                    {files.length === 1 ? "video selected" : "videos selected"}
+                  </strong>
+                  <span>{files.map((f) => f.name).join(", ")}</span>
+                </>
+              ) : (
+                <>
+                  <strong>No videos selected</strong>
+                  <span>
+                    You can link them later. Saved timing stays intact.
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
         </>
       ) : (
         <p>
@@ -128,7 +159,12 @@ export function ProjectImportDialog({
           className="primary"
           onClick={() => onDecision({ files, openVideos: true })}
         >
-          Import and open video sync
+          {clips.length &&
+          project.manifest.sync.bindings.some((b: Binding) => b.anchors.length)
+            ? files.length
+              ? "Import and play video"
+              : "Import with saved timing"
+            : "Import and open video sync"}
         </button>
       </div>
     </dialog>
