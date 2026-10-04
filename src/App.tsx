@@ -76,7 +76,13 @@ import { TrackChooser } from "./TrackChooser";
 import { assignTrack, knownTracks, summarizeTracks } from "./tracks";
 import type { TrackSummary } from "./tracks";
 import { TracksMap } from "./TracksMap";
-import { decodeVenue, layoutSourceText, searchVenues, venueOf } from "./venues";
+import {
+  catalogVenues,
+  decodeVenue,
+  layoutSourceText,
+  searchVenues,
+  venueOf,
+} from "./venues";
 import type { Venue, VenueGeometry, VenueShape } from "./venues";
 import {
   groupSessions,
@@ -187,7 +193,7 @@ export default function App() {
       .catch(report);
     fetch("/tracks.json")
       .then((r) => r.json())
-      .then((d) => setCatalog(d.venues))
+      .then((d) => setCatalog(catalogVenues(d)))
       .catch(() => setCatalogFailed(true));
   }, []);
   useEffect(() => {
@@ -1084,7 +1090,7 @@ export default function App() {
       : null;
   const shape = venue ? shapes[venue.id] : null;
   useEffect(() => {
-    if (!venue || venue.id in shapes) return;
+    if (!venue || !venue.cell || venue.id in shapes) return;
     fetch(`/venues/${venue.cell}.json`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((cell: Record<string, VenueGeometry>) =>
@@ -2468,7 +2474,9 @@ export default function App() {
                                 <small>
                                   {g.venue.layouts.length
                                     ? `${g.venue.layouts.length} mapped ${g.venue.layouts.length === 1 ? "layout" : "layouts"}`
-                                    : "Mapped pieces only"}
+                                    : g.venue.cell
+                                      ? "Mapped pieces only"
+                                      : "Mapped location"}
                                 </small>
                               </span>
                             </button>
@@ -2524,7 +2532,9 @@ export default function App() {
                                 <small>
                                   {v.layouts.length
                                     ? `${v.layouts.length} ${v.layouts.length === 1 ? "layout" : "layouts"}`
-                                    : "Mapped pieces only"}
+                                    : v.cell
+                                      ? "Mapped pieces only"
+                                      : "Mapped location"}
                                   {via && ` · ${via}`}
                                 </small>
                               </span>
@@ -2542,6 +2552,7 @@ export default function App() {
                         track={showMine}
                         gates={showMine ? shownGates : []}
                         shape={shape}
+                        center={venue ? [venue.lat, venue.lon] : undefined}
                         layout={osmLayout}
                         label={venue?.name}
                         height={480}

@@ -17,6 +17,7 @@ export function TracksMap({
   track,
   gates = [],
   shape,
+  center,
   layout,
   label,
   height,
@@ -24,6 +25,7 @@ export function TracksMap({
   track?: TrackSummary | null;
   gates?: Gate[];
   shape?: VenueShape | null;
+  center?: [number, number];
   layout?: number | null;
   label?: string;
   height: number;
@@ -86,6 +88,10 @@ export function TracksMap({
     if (!track) {
       if (bounds.length)
         m.fitBounds(bounds, { padding: [40, 40], animate: false });
+      else if (center) {
+        L.marker(center).addTo(g);
+        m.setView(center, 14, { animate: false });
+      }
       return;
     }
     for (const o of track.others)
@@ -134,7 +140,7 @@ export function TracksMap({
     if (track.finish) bar(track.finish, "finish");
     if (track.outline.length)
       m.fitBounds(track.outline, { padding: [50, 50], animate: false });
-  }, [track, gates.length, shape, layout]);
+  }, [track, gates.length, shape, layout, center?.[0], center?.[1]]);
   const chosen = shape && layout != null ? shape.layouts[layout] : null;
   return (
     <div className="map-shell" style={{ height }}>

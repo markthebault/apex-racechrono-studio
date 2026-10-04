@@ -77,6 +77,7 @@ export function venueOf(
   let best: Venue | undefined,
     area = Infinity;
   for (const v of venues) {
+    if (!v.cell) continue;
     const [vs, vw, vn, ve] = v.bbox;
     if (lat < vs - pad || lat > vn + pad || lon < vw - pad || lon > ve + pad)
       continue;
@@ -117,3 +118,23 @@ export const layoutSourceText: Record<LayoutSource, string> = {
   pieces:
     "Assembled from mapped track pieces. Check it against the circuit's own map.",
 };
+
+export function catalogVenues(data: {
+  venues?: Venue[];
+  tracks?: { id: string; name: string; lat: number; lon: number }[];
+}): Venue[] {
+  const venues = data.venues ?? [];
+  const ids = new Set(venues.map((v) => v.id));
+  return [
+    ...venues,
+    ...(data.tracks ?? [])
+      .filter((t) => !ids.has(t.id))
+      .map((t) => ({
+        ...t,
+        bbox: [t.lat, t.lon, t.lat, t.lon] as [number, number, number, number],
+        cell: "",
+        aliases: [],
+        layouts: [],
+      })),
+  ];
+}

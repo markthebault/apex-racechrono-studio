@@ -139,6 +139,9 @@ await writeFile(
     license: "ODbL-1.0",
     generated: new Date().toISOString(),
     venues: index,
+    tracks: existsSync("public/tracks.json")
+      ? (JSON.parse(await readFile("public/tracks.json", "utf8")).tracks ?? [])
+      : [],
   }),
 );
 const layouts = index.reduce((n, v) => n + v.layouts.length, 0);

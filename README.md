@@ -85,7 +85,7 @@ Your tracks are **grouped by circuit**. A track whose trace lies on a circuit in
 
 OpenStreetMap does not record the start/finish line or which way a circuit is timed. Those come from your recordings, and a mapped layout never changes your laps or sectors.
 
-The catalog is `public/tracks.json`, which holds names, positions and layout lists, plus one geometry file per 2° cell in `public/venues/`. The app loads a cell only when you open a circuit in it, and caches it for offline use. Regenerate both with:
+The full location search remains available alongside the 17 enriched venues with layout geometry. The catalog is `public/tracks.json`, which holds names, positions and layout lists, plus one geometry file per 2° cell in `public/venues/`. The app loads a cell only when you open a circuit in it, and caches it for offline use. Regenerate both with:
 
 ```sh
 npm run catalog
