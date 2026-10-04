@@ -2,9 +2,22 @@
 // Sensor values stay in their recorded axis order. A mount is not a vehicle frame.
 import type { Session } from "./model";
 export type MotionSample = { t: number; v: [number, number, number] };
+export type GpsSample = {
+  t: number;
+  lat: number;
+  lon: number;
+  altitude?: number;
+  speed?: number;
+  utc?: number;
+  fix: number;
+  dop?: number;
+};
 export type CameraMotion = {
   acceleration: MotionSample[];
   gyro: MotionSample[];
+  gps?: GpsSample[];
+  model?: string;
+  warnings?: string[];
 };
 const ascii = (b: Uint8Array) => new TextDecoder().decode(b).replace(/\0/g, "");
 type Box = { type: string; at: number; end: number };
@@ -78,13 +91,17 @@ export function parseGpmf(
   start: number,
   duration: number,
 ): CameraMotion {
-  const result: CameraMotion = { acceleration: [], gyro: [] };
+  const result: CameraMotion = { acceleration: [], gyro: [], gps: [] };
   function nest(data: Uint8Array, depth = 0) {
     if (depth > 8) throw Error("GPMF nesting is too deep.");
     const d = new DataView(data.buffer, data.byteOffset, data.byteLength);
     let scale = [1],
       unit = "",
-      offset = 0;
+      offset = 0,
+      gpsUtc = NaN,
+      gpsFix = 0,
+      gpsDop = NaN,
+      complexType = "";
     for (let p = 0; p + 8 <= data.length;) {
       const key = ascii(data.subarray(p, p + 4)),
         type = String.fromCharCode(data[p + 4]);
@@ -97,7 +114,72 @@ export function parseGpmf(
       else if (key === "SCAL") scale = numbers(value, type);
       else if (key === "SIUN" || key === "UNIT") unit = ascii(value);
       else if (key === "TIMO") offset = numbers(value, type)[0];
-      else if (key === "ACCL" || key === "GYRO") {
+      else if (key === "TYPE") complexType = ascii(value);
+      else if (key === "DVNM" && !result.model) result.model = ascii(value);
+      else if (key === "GPSU") {
+        const m = /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}(?:\.\d+)?)/.exec(
+          ascii(value),
+        );
+        if (m)
+          gpsUtc =
+            Date.UTC(2000 + +m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0) +
+            +m[6] * 1000;
+      } else if (key === "GPSF") gpsFix = numbers(value, type)[0];
+      else if (key === "GPSP") gpsDop = numbers(value, type)[0] / 100;
+      else if (key === "GPS5" || key === "GPS9") {
+        const width = key === "GPS5" ? 5 : 9;
+        let values: number[];
+        if (type === "?") {
+          if (complexType !== "lllllllSS" || size !== 32)
+            throw Error("Unsupported GPS9 structure.");
+          const view = new DataView(
+            value.buffer,
+            value.byteOffset,
+            value.byteLength,
+          );
+          values = Array.from({ length: count }, (_, i) =>
+            Array.from({ length: 9 }, (_, j) =>
+              j < 7
+                ? view.getInt32(i * 32 + j * 4)
+                : view.getUint16(i * 32 + 28 + (j - 7) * 2),
+            ),
+          ).flat();
+        } else values = numbers(value, type);
+        if (
+          values.length !== count * width ||
+          ![1, width].includes(scale.length) ||
+          scale.some((n) => !Number.isFinite(n) || !n)
+        )
+          throw Error("Invalid GPMF GPS structure.");
+        for (let i = 0; i < count; i++) {
+          const v = values
+            .slice(i * width, (i + 1) * width)
+            .map((n, j) => n / scale[j % scale.length]);
+          const t = start + (duration * i) / count - offset;
+          const utc =
+            key === "GPS9"
+              ? Date.UTC(2000, 0, 1) + v[5] * 86400000 + v[6] * 1000
+              : gpsUtc + ((duration * i) / count) * 1000;
+          const point: GpsSample = {
+            t,
+            lat: v[0],
+            lon: v[1],
+            altitude: v[2],
+            speed: v[3],
+            fix: key === "GPS9" ? v[8] : gpsFix,
+            dop: key === "GPS9" ? v[7] : gpsDop,
+            ...(Number.isFinite(utc) ? { utc } : {}),
+          };
+          if (
+            Number.isFinite(t) &&
+            Math.abs(point.lat) <= 90 &&
+            Math.abs(point.lon) <= 180 &&
+            Number.isFinite(point.speed) &&
+            point.speed! >= 0
+          )
+            result.gps!.push(point);
+        }
+      } else if (key === "ACCL" || key === "GYRO") {
         const values = numbers(value, type);
         if (
           !count ||
@@ -143,10 +225,17 @@ export function parseGpmf(
   return result;
 }
 // Read only the movie index and telemetry samples, never the multi-GB video payload.
-export async function readGoProMotion(
+export async function readMetadataTrack(
   file: Blob,
+  types: string[],
+  onPacket: (
+    data: Uint8Array,
+    t: number,
+    duration: number,
+    type: string,
+  ) => void | Promise<void>,
   signal?: AbortSignal,
-): Promise<CameraMotion> {
+): Promise<void> {
   const check = () => {
     if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
   };
@@ -178,7 +267,6 @@ export async function readGoProMotion(
     p += size;
   }
   if (!moov) throw Error("No MP4 movie index found.");
-  const result: CameraMotion = { acceleration: [], gyro: [] };
   let found = false,
     total = 0;
   for (const track of boxes(moov).filter((b) => b.type === "trak")) {
@@ -191,7 +279,7 @@ export async function readGoProMotion(
     const stsd = child(stbl, "stsd");
     if (!stsd) continue;
     const entries = boxes(moov, stsd.at + 8, stsd.end);
-    if (!entries.some((b) => b.type === "gpmd")) continue;
+    if (!entries.some((b) => types.includes(b.type))) continue;
     found = true;
     // Edited timelines need explicit handling rather than silently shifted graphs.
     const edts = child(track, "edts");
@@ -273,7 +361,7 @@ export async function readGoProMotion(
       if (
         !entry ||
         entry.first > c ||
-        entries[entry.description - 1]?.type !== "gpmd"
+        !types.includes(entries[entry.description - 1]?.type)
       )
         throw Error("Invalid telemetry chunk map.");
       let at = co64
@@ -289,20 +377,12 @@ export async function readGoProMotion(
           (total += size) > 128 * 1024 * 1024
         )
           throw Error("Invalid or excessive telemetry payload.");
-        const motion = parseGpmf(
+        await onPacket(
           new Uint8Array(await file.slice(at, at + size).arrayBuffer()),
           t,
           durations[sample],
+          entries[entry.description - 1].type,
         );
-        if (
-          result.acceleration.length + motion.acceleration.length > 2000000 ||
-          result.gyro.length + motion.gyro.length > 2000000
-        )
-          throw Error(
-            "Telemetry exceeds two million samples. Select a shorter clip.",
-          );
-        result.acceleration.push(...motion.acceleration);
-        result.gyro.push(...motion.gyro);
         t += durations[sample++];
         at += size;
       }
@@ -311,10 +391,35 @@ export async function readGoProMotion(
   }
   if (!found)
     throw Error(
-      "No GoPro GPMF track. Use an original camera MP4; edited exports often remove telemetry.",
+      `No ${types.join("/")} telemetry track. Use an original camera file; edited exports often remove telemetry.`,
     );
-  if (!result.acceleration.length && !result.gyro.length)
-    throw Error("No ACCL or GYRO samples in this video.");
+}
+export async function readGoProMotion(
+  file: Blob,
+  signal?: AbortSignal,
+): Promise<CameraMotion> {
+  const result: CameraMotion = { acceleration: [], gyro: [], gps: [] };
+  await readMetadataTrack(
+    file,
+    ["gpmd"],
+    (data, t, duration) => {
+      const motion = parseGpmf(data, t, duration);
+      if (
+        result.acceleration.length + motion.acceleration.length > 2000000 ||
+        result.gyro.length + motion.gyro.length > 2000000
+      )
+        throw Error(
+          "Telemetry exceeds two million samples. Select a shorter clip.",
+        );
+      result.acceleration.push(...motion.acceleration);
+      result.gyro.push(...motion.gyro);
+      result.gps!.push(...motion.gps!);
+      result.model ||= motion.model;
+    },
+    signal,
+  );
+  if (!result.acceleration.length && !result.gyro.length && !result.gps!.length)
+    throw Error("No motion or GPS samples in this GoPro video.");
   return result;
 }
 export type GraphPoint = { t: number; g: number };

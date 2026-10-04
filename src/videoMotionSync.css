@@ -83,3 +83,14 @@
 .motion-controls input[type="checkbox"] {
   width: auto;
 }
+.gps-sync {
+  padding: 12px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0b1220;
+}
+.gps-proposal {
+  margin-top: 12px;
+  padding: 10px;
+  border-left: 3px solid #67e8f9;
+}

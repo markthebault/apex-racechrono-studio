@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { proposeGpsClock, proposeGpsRoute } from "./videoGpsSync";
+import type { GpsProposal } from "./videoGpsSync";
+import { formatWallClock } from "./wallclock";
 import type { Clip, Session } from "./model";
 import {
   cameraAcceleration,
@@ -126,6 +129,7 @@ export function VideoMotionSync({
   onGoTo,
   onSeek,
   onConfig,
+  onGpsSync,
 }: {
   session: Session;
   clip: Clip;
@@ -137,14 +141,20 @@ export function VideoMotionSync({
   onGoTo?: (t: number) => void;
   onSeek: (t: number) => void;
   onConfig: (c: MotionConfig) => void;
+  onGpsSync: (a: { videoSeconds: number; sessionTimestamp: number }) => void;
 }) {
   const config = clip.motion ?? defaults;
   const [motion, setMotion] = useState<CameraMotion>(),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false),
     [windowSeconds, setWindow] = useState(20);
+  const [method, setMethod] = useState("braking");
+  const [proposal, setProposal] = useState<GpsProposal>();
+  const [gpsError, setGpsError] = useState("");
   useEffect(() => {
     setMotion(undefined);
+    setProposal(undefined);
+    setGpsError("");
     setError("");
     setLoading(false);
     if (config.camera !== "gopro" || !file) return;
@@ -184,13 +194,33 @@ export function VideoMotionSync({
     onConfig({ ...config, ...next });
   return (
     <div className="motion-sync">
-      <h4>Align a braking event</h4>
+      <h4>
+        {method === "braking"
+          ? "Align a braking event"
+          : "Align using camera GPS"}
+      </h4>
       <p>
         Pick the same negative acceleration dip in each graph, then press Sync
         here below. Deceleration indicates slowing down; it does not measure
         brake pedal pressure.
       </p>
       <div className="motion-controls">
+        <label>
+          Synchronize by{" "}
+          <select
+            aria-label="Video sync method"
+            value={method}
+            onChange={(e) => {
+              setMethod(e.target.value);
+              setProposal(undefined);
+              setGpsError("");
+            }}
+          >
+            <option value="braking">Braking event</option>
+            <option value="clock">Embedded GPS clock</option>
+            <option value="route">GPS route matching</option>
+          </select>
+        </label>
         <label>
           Camera for this clip{" "}
           <select
@@ -300,68 +330,137 @@ export function VideoMotionSync({
           G-force graph.
         </p>
       )}
-      <div className="motion-graphs">
-        <div>
-          <MotionGraph
-            points={gps}
-            cursor={(stamp - session.start) / 1000}
-            onPick={(t) =>
-              onGoTo?.(
-                Math.max(
-                  sessionFrom,
-                  Math.min(sessionTo, session.start + t * 1000),
-                ),
-              )
-            }
-            name="Session · GPS-derived acceleration"
-            windowSeconds={windowSeconds}
-          />
-          <label>
-            Session time{" "}
-            <input
-              aria-label="Braking session time"
-              type="range"
-              min={(sessionFrom - session.start) / 1000}
-              max={(sessionTo - session.start) / 1000}
-              step=".01"
-              value={(stamp - session.start) / 1000}
-              disabled={!onGoTo}
-              onChange={(e) => onGoTo?.(session.start + +e.target.value * 1000)}
-            />
-          </label>
-          <small>
-            Calculated from speed. GPS gaps over 2 seconds stay empty.
-          </small>
-          {!onGoTo && <small>The session cursor follows Lap A.</small>}
-          {!gps.length && <p>No speed channel in this session.</p>}
-        </div>
-        <div>
-          <MotionGraph
-            points={camera}
-            cursor={seek}
-            onPick={onSeek}
-            name="Camera · recorded acceleration"
-            windowSeconds={windowSeconds}
-          />
-          <label>
-            Video time{" "}
-            <input
-              aria-label="Braking video time"
-              type="range"
-              min="0"
-              max={clip.duration}
-              step=".01"
-              value={seek}
-              onChange={(e) => onSeek(+e.target.value)}
-            />
-          </label>
-          {config.camera === "none" && (
-            <small>
-              Select GoPro to load acceleration from this clip's original MP4.
-            </small>
+      {method !== "braking" && (
+        <div className="gps-sync">
+          <p>
+            {method === "clock"
+              ? "Use the UTC timestamps recorded by the camera GPS to place this clip on the session clock."
+              : "Compare multiple camera GPS positions with the session route. Useful when the camera clock differs. Repeated laps can be ambiguous."}
+          </p>
+          <p>
+            {motion?.gps?.length ?? 0} camera GPS samples ·{" "}
+            {(motion?.gps ?? []).filter((p) => p.fix >= 2).length} valid fixes.
+          </p>
+          {!motion?.gps?.length && !loading && (
+            <p>
+              This clip has no embedded GPS. GPS must be recorded by the camera
+              or a compatible GPS accessory. You can still sync by braking or a
+              matching video frame.
+            </p>
+          )}
+          <button
+            disabled={!motion?.gps?.length || loading}
+            onClick={() => {
+              setGpsError("");
+              setProposal(undefined);
+              try {
+                setProposal(
+                  (method === "clock" ? proposeGpsClock : proposeGpsRoute)(
+                    motion!.gps!,
+                    session,
+                    clip.start,
+                  ),
+                );
+              } catch (e) {
+                setGpsError((e as Error).message);
+              }
+            }}
+          >
+            Find GPS alignment
+          </button>
+          {gpsError && (
+            <p className="error" role="alert">
+              {gpsError}
+            </p>
+          )}
+          {proposal && (
+            <div className="gps-proposal" role="status">
+              <p>
+                Video {proposal.anchor.videoSeconds.toFixed(2)} s matches{" "}
+                {formatWallClock(proposal.anchor.sessionTimestamp)} local time.{" "}
+                {proposal.samples} matching fixes ·{" "}
+                {proposal.distanceMetres.toFixed(1)} m route difference
+                {method === "clock"
+                  ? ` · ${proposal.clockSpreadMs.toFixed(0)} ms clock spread`
+                  : ""}
+                .
+              </p>
+              <button
+                className="sync-button"
+                onClick={() => onGpsSync(proposal.anchor)}
+              >
+                Apply GPS sync
+              </button>
+            </div>
           )}
         </div>
-      </div>
+      )}
+      {method === "braking" && (
+        <div className="motion-graphs">
+          <div>
+            <MotionGraph
+              points={gps}
+              cursor={(stamp - session.start) / 1000}
+              onPick={(t) =>
+                onGoTo?.(
+                  Math.max(
+                    sessionFrom,
+                    Math.min(sessionTo, session.start + t * 1000),
+                  ),
+                )
+              }
+              name="Session · GPS-derived acceleration"
+              windowSeconds={windowSeconds}
+            />
+            <label>
+              Session time{" "}
+              <input
+                aria-label="Braking session time"
+                type="range"
+                min={(sessionFrom - session.start) / 1000}
+                max={(sessionTo - session.start) / 1000}
+                step=".01"
+                value={(stamp - session.start) / 1000}
+                disabled={!onGoTo}
+                onChange={(e) =>
+                  onGoTo?.(session.start + +e.target.value * 1000)
+                }
+              />
+            </label>
+            <small>
+              Calculated from speed. GPS gaps over 2 seconds stay empty.
+            </small>
+            {!onGoTo && <small>The session cursor follows Lap A.</small>}
+            {!gps.length && <p>No speed channel in this session.</p>}
+          </div>
+          <div>
+            <MotionGraph
+              points={camera}
+              cursor={seek}
+              onPick={onSeek}
+              name="Camera · recorded acceleration"
+              windowSeconds={windowSeconds}
+            />
+            <label>
+              Video time{" "}
+              <input
+                aria-label="Braking video time"
+                type="range"
+                min="0"
+                max={clip.duration}
+                step=".01"
+                value={seek}
+                onChange={(e) => onSeek(+e.target.value)}
+              />
+            </label>
+            {config.camera === "none" && (
+              <small>
+                Select GoPro to load acceleration from this clip's original MP4.
+              </small>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

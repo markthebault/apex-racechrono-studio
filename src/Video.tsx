@@ -334,10 +334,11 @@ export function VideoPanel({
       await open("relink");
     }
   }
-  function anchor(second = false) {
+  function anchor(second = false, gpsAnchor?: Binding["anchors"][number]) {
     if (!binding || !clip || !video.current) return;
-    const seconds = clip.start + video.current.currentTime;
-    const a = { videoSeconds: seconds, sessionTimestamp: stamp };
+    const seconds =
+      gpsAnchor?.videoSeconds ?? clip.start + video.current.currentTime;
+    const a = gpsAnchor ?? { videoSeconds: seconds, sessionTimestamp: stamp };
     const next = {
       ...binding,
       anchors: second ? [binding.anchors[0], a] : [a],
@@ -348,10 +349,14 @@ export function VideoPanel({
       setError("");
       // Visible proof that the press did something.
       setConfirm({
-        what: second ? "Drift correction added" : "Synced",
+        what: gpsAnchor
+          ? "Synced from GPS"
+          : second
+            ? "Drift correction added"
+            : "Synced",
         video: seconds,
-        lap: lapStart === undefined ? NaN : stamp - lapStart,
-        wall: stamp,
+        lap: lapStart === undefined ? NaN : a.sessionTimestamp - lapStart,
+        wall: a.sessionTimestamp,
       });
       setJustSynced(true);
       clearTimeout(flash.current);
@@ -665,6 +670,13 @@ export function VideoPanel({
                       video.current.currentTime = t;
                       setSeek(t);
                     }
+                  }}
+                  onGpsSync={(a) => {
+                    anchor(false, a);
+                    onGoTo?.(
+                      a.sessionTimestamp +
+                        (clip.start + seek - a.videoSeconds) * 1000,
+                    );
                   }}
                   onConfig={(motion) =>
                     onBinding({
