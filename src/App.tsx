@@ -83,6 +83,10 @@ import {
 } from "./groups";
 import { Chart } from "./Chart";
 import { VideoPanel } from "./Video";
+import { ProjectImportDialog } from "./ProjectImportDialog";
+import type { ImportDecision } from "./ProjectImportDialog";
+import type { LoadedProject } from "./storage";
+import { matchProjectVideos } from "./projectVideos";
 const defaults: Settings = {
   speedUnit: "km/h",
   colors: ["#63e5d2", "#f8a36b"],
@@ -140,6 +144,12 @@ export default function App() {
     [busyA, setBusyA] = useState(false),
     [busyB, setBusyB] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sourceFiles, setSourceFiles] = useState<Record<string, File>>({});
+  const [projectReview, setProjectReview] = useState<{
+    project: LoadedProject;
+    name: string;
+    decide: (d: ImportDecision | null) => void;
+  }>();
   const [removeId, setRemoveId] = useState<string | null>(null),
     [removing, setRemoving] = useState(false),
     [removeError, setRemoveError] = useState("");
@@ -688,6 +698,7 @@ export default function App() {
   // Sessions, projects and sync files, from the file picker or dropped anywhere on the
   // window. Each file is handled on its own, so one bad file does not stop the rest.
   async function importFiles(list: File[]) {
+    if (abort.current) return;
     setError("");
     abort.current = new AbortController();
     const added: Session[] = [],
@@ -728,6 +739,14 @@ export default function App() {
         } else if (kind === "project") {
           setStatus("Checking project…");
           const p = await readProject(file);
+          const decision = await new Promise<ImportDecision | null>((decide) =>
+            setProjectReview({ project: p, name: file.name, decide }),
+          );
+          setProjectReview(undefined);
+          if (!decision) {
+            setStatus("Import cancelled.");
+            continue;
+          }
           await commitProject(
             p.records,
             { ...defaults, ...p.manifest.settings },
@@ -736,7 +755,52 @@ export default function App() {
           setSessions((await load()).records.map((r) => r.session));
           setSettings({ ...defaults, ...p.manifest.settings });
           setSync(p.manifest.sync);
-          setStatus("Project restored. Videos can be relinked by hash.");
+          if (decision.openVideos || decision.files.length) {
+            setShowVideos(true);
+            setTab("Video sync");
+          }
+          if (decision.files.length) {
+            setStatus("Linking local videos…");
+            const result = await matchProjectVideos(
+              decision.files,
+              p.manifest.sync,
+              async (f) =>
+                (
+                  await work<{ sha256: string }>(
+                    "hash",
+                    { file: f },
+                    undefined,
+                    abort.current!.signal,
+                  )
+                ).sha256,
+            );
+            setFiles((old) => ({
+              ...old,
+              ...Object.fromEntries(
+                Object.entries(result.matched).map(([hash, f]) => [
+                  hash,
+                  URL.createObjectURL(
+                    new Blob([f], {
+                      type: /\.(insv|osv)$/i.test(f.name)
+                        ? "video/mp4"
+                        : f.type || "video/mp4",
+                    }),
+                  ),
+                ]),
+              ),
+            }));
+            setSourceFiles((old) => ({ ...old, ...result.matched }));
+            setStatus(
+              `Project restored. ${Object.keys(result.matched).length} original videos linked.`,
+            );
+            if (result.unmatched.length)
+              setError(
+                `These files do not match the saved video links: ${result.unmatched.join(", ")}. Choose the original files or use Replace video.`,
+              );
+          } else
+            setStatus(
+              "Project restored. Open Video sync to choose or reload a local video.",
+            );
         } else {
           setStatus(`Reading ${file.name}`);
           const decoded = await work<Session>(
@@ -981,6 +1045,13 @@ export default function App() {
   };
   return (
     <div className="app">
+      {projectReview && (
+        <ProjectImportDialog
+          project={projectReview.project}
+          name={projectReview.name}
+          onDecision={projectReview.decide}
+        />
+      )}
       {dragging && (
         <div className="drop-overlay" aria-hidden="true">
           <div>
@@ -1099,7 +1170,7 @@ export default function App() {
               {saving ? "Saving…" : "Saved locally"}
             </span>
             <button onClick={() => exportProject(settings, sync).catch(report)}>
-              <ArrowDownToLine size={14} /> Export project
+              <ArrowDownToLine size={14} /> Download session file
             </button>
             <button className="primary" onClick={() => input.current?.click()}>
               <Plus size={15} /> Import sessions
@@ -1578,6 +1649,8 @@ export default function App() {
                         onBinding={updateBinding}
                         files={files}
                         setFiles={setFiles}
+                        sourceFiles={sourceFiles}
+                        setSourceFiles={setSourceFiles}
                         onBusy={setBusyA}
                         onPause={() => setPlaying(false)}
                         onGoTo={goTo}
@@ -1610,6 +1683,8 @@ export default function App() {
                         onBinding={updateBinding}
                         files={files}
                         setFiles={setFiles}
+                        sourceFiles={sourceFiles}
+                        setSourceFiles={setSourceFiles}
                         onBusy={setBusyB}
                         onPause={() => setPlaying(false)}
                         onUnlink={() =>

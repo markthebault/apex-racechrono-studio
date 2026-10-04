@@ -31,6 +31,8 @@ export function VideoPanel({
   onBinding,
   files,
   setFiles,
+  sourceFiles,
+  setSourceFiles,
   onBusy,
   label,
   playing,
@@ -48,6 +50,8 @@ export function VideoPanel({
   onBinding: (b: Binding) => void;
   files: Record<string, string>;
   setFiles: (v: Record<string, string>) => void;
+  sourceFiles: Record<string, File>;
+  setSourceFiles: (v: Record<string, File>) => void;
   onBusy: (busy: boolean) => void;
   label: string;
   playing: boolean;
@@ -83,7 +87,6 @@ export function VideoPanel({
     // Lap A carries the sound. Lap B starts muted so two videos do not talk over each other.
     [muted, setMuted] = useState(label !== "LAP A");
   const [seek, setSeek] = useState(0);
-  const [sourceFiles, setSourceFiles] = useState<Record<string, File>>({});
   const vt = binding ? videoTime(binding, stamp) : NaN;
   const active =
     binding?.clips.findIndex(
@@ -188,7 +191,13 @@ export function VideoPanel({
           );
         if (mode === "append" && !match && clips.some((c) => !urls[c.sha256]))
           throw Error("Reload the earlier clips first, then add the next one.");
-        const objectUrl = URL.createObjectURL(f);
+        const objectUrl = URL.createObjectURL(
+          new Blob([f], {
+            type: /\.(insv|osv)$/i.test(f.name)
+              ? "video/mp4"
+              : f.type || "video/mp4",
+          }),
+        );
         const duration = await new Promise<number>((resolve, reject) => {
           const v = document.createElement("video");
           const timer = setTimeout(
