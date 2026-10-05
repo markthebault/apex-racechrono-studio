@@ -55,7 +55,7 @@ export function LineEditor({
     const flush = () => {
       if (run.length > 1)
         L.polyline(run, {
-          color: "#63e5d2",
+          color: "#ff8855",
           weight: 3,
           interactive: false,
         }).addTo(m);

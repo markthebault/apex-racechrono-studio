@@ -100,9 +100,10 @@ import type { LoadedProject } from "./storage";
 import { matchProjectVideos, restoredVideoPosition } from "./projectVideos";
 import { GoogleDriveDialog } from "./GoogleDriveDialog";
 import { useGoogleDrive } from "./useGoogleDrive";
+import raceLabLogo from "./assets/racelab-logo-light.svg";
 const defaults: Settings = {
   speedUnit: "km/h",
-  colors: ["#63e5d2", "#f8a36b"],
+  colors: ["#ff8855", "#8ed4b2"],
   videoHeight: 280,
   a: "",
   b: "",
@@ -190,7 +191,16 @@ export default function App() {
         setSessions(
           d.records.map((r) => r.session).sort((a, b) => a.start - b.start),
         );
-        if (d.settings) setSettings({ ...defaults, ...d.settings });
+        if (d.settings) {
+          const legacyPalette =
+            d.settings.colors[0] === "#63e5d2" &&
+            d.settings.colors[1] === "#f8a36b";
+          setSettings({
+            ...defaults,
+            ...d.settings,
+            colors: legacyPalette ? defaults.colors : d.settings.colors,
+          });
+        }
         if (d.sync) setSync(d.sync);
         setReady(true);
       })
@@ -1185,10 +1195,29 @@ export default function App() {
         </div>
       )}
       <aside className="sidebar">
-        <a className="brand" href="#">
-          <span className="brand-mark">A</span>apex
-          <span className="brand-dot">.</span>
+        <a
+          className="brand"
+          href="https://mthracelab.com/"
+          aria-label="MTH Race Lab home"
+        >
+          <img
+            className="brand-wordmark"
+            src={raceLabLogo}
+            alt="MTH Race Lab"
+            width="415"
+            height="68"
+          />
+          <img
+            className="brand-stripes"
+            src="/favicon.svg"
+            alt=""
+            width="80"
+            height="80"
+          />
         </a>
+        <div className="product-name">
+          Apex <span>Track analysis studio</span>
+        </div>
         <div className="workspace-label">YOUR WORKSPACE</div>
         <nav>
           {[
@@ -1201,6 +1230,7 @@ export default function App() {
             <button
               key={String(name)}
               aria-label={String(name)}
+              aria-current={tab === name ? "page" : undefined}
               className={tab === name ? "selected" : ""}
               onClick={() => {
                 setTab(String(name));
@@ -2792,7 +2822,13 @@ export default function App() {
           )}
         </div>
         <footer>
-          <span className="brand-mini">apex.</span>
+          <a
+            className="brand-mini"
+            href="https://mthracelab.com/"
+            aria-label="MTH Race Lab home"
+          >
+            <img src={raceLabLogo} alt="MTH Race Lab" width="415" height="68" />
+          </a>
           <span>A little more understanding. A little less lap time.</span>
           <a href="/privacy.html">Privacy</a>
           <a href="/terms.html">Terms</a>

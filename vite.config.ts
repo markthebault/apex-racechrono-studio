@@ -50,6 +50,9 @@ export default defineConfig(() => {
             "/",
             "/index.html",
             "/tracks.json",
+            "/favicon.svg",
+            "/logo.svg",
+            "/fonts/inter-latin.woff2",
             ...Object.keys(bundle).map((p) => "/" + p),
           ];
           // The catalog is part of the version, so a new one replaces cached venue files.

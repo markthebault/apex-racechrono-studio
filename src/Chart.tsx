@@ -65,26 +65,29 @@ export function Chart({
     const ctx = c.getContext("2d")!;
     ctx.scale(dpr, dpr);
     const pad = 48;
-    ctx.font = "10px system-ui";
+    ctx.font = "10px Inter, system-ui";
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const y = 12 + ((h - 35) * i) / 4;
-      ctx.strokeStyle = "#293139";
+      ctx.strokeStyle = "#35434b";
       ctx.beginPath();
       ctx.moveTo(pad, y);
       ctx.lineTo(w - 15, y);
       ctx.stroke();
     }
-    for (let i = 0; i <= 5; i++) {
-      const x = pad + ((w - pad - 15) * i) / 5;
-      ctx.fillStyle = "#78858f";
+    const ticks = Math.max(1, Math.min(5, Math.floor((w - pad - 15) / 70)));
+    for (let i = 0; i <= ticks; i++) {
+      const x = pad + ((w - pad - 15) * i) / ticks;
+      ctx.fillStyle = "#b6c1c5";
+      ctx.textAlign = i === 0 ? "left" : i === ticks ? "right" : "center";
       ctx.fillText(
-        ((range[0] + ((range[1] - range[0]) * i) / 5) / 1000).toFixed(1) +
+        ((range[0] + ((range[1] - range[0]) * i) / ticks) / 1000).toFixed(1) +
           " km",
         x,
         h - 4,
       );
     }
+    ctx.textAlign = "left";
     if (showDelta) {
       const width = w - pad - 15,
         cols = Math.max(2, Math.floor(width / 2));
@@ -161,7 +164,7 @@ export function Chart({
           ctx.stroke();
         }
       });
-      ctx.fillStyle = "#8d9aa4";
+      ctx.fillStyle = "#b6c1c5";
       ctx.textAlign = "right";
       ctx.fillText("+" + M + " s", w - 18, top + 9);
       ctx.fillText("0", w - 18, y0 - 3);
@@ -171,7 +174,7 @@ export function Chart({
     for (const d of joins) {
       if (d < range[0] || d > range[1]) continue;
       const x = pad + ((d - range[0]) / (range[1] - range[0])) * (w - pad - 15);
-      ctx.strokeStyle = "#f8a36b55";
+      ctx.strokeStyle = "#ff885555";
       ctx.setLineDash([2, 5]);
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -194,7 +197,7 @@ export function Chart({
       if (id !== "altitude" && min > 0) min = 0;
       max = Math.max(max, min + 1);
       if (channelIndex === 0) {
-        ctx.fillStyle = "#94a0a9";
+        ctx.fillStyle = "#b6c1c5";
         for (let i = 0; i <= 4; i++)
           ctx.fillText(
             (max - ((max - min) * i) / 4).toFixed(0),
@@ -324,7 +327,7 @@ export function Chart({
               : "";
           })
           .join("");
-      ctx.font = "11px system-ui";
+      ctx.font = "11px Inter, system-ui";
       const wl = Math.max(...rows.map((r) => ctx.measureText(r.label).width));
       const cols = [a, ...others.map((o) => o.trace)].map((_, k) =>
         Math.max(...rows.map((r) => ctx.measureText(r.values[k]).width)),
@@ -346,7 +349,7 @@ export function Chart({
       ctx.fillText(head, bx0 + 8, 20);
       rows.forEach((r, i) => {
         const y = 20 + 14 * (i + 1);
-        ctx.fillStyle = "#94a0a9";
+        ctx.fillStyle = "#b6c1c5";
         ctx.fillText(r.label, bx0 + 8, y);
         let x = bx0 + 8 + wl + 12;
         r.values.forEach((v, k) => {

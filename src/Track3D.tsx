@@ -172,7 +172,7 @@ function ribbon(
 export default function Track3D({
   a,
   others = [],
-  colors = ["#63e5d2", "#f8a36b"],
+  colors = ["#ff8855", "#8ed4b2"],
   cursor,
   gates,
   brakeMarkers = [],

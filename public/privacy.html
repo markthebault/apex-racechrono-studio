@@ -4,22 +4,53 @@
     name="viewport"
     content="width=device-width,initial-scale=1"
   /><title>Apex Studio · Data and privacy</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <style>
+    @font-face {
+      font-family: Inter;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("/fonts/inter-latin.woff2") format("woff2");
+    }
     body {
       max-width: 740px;
       margin: 60px auto;
       padding: 0 24px;
-      background: #10151c;
-      color: #e6ecef;
-      font: 16px/1.7 system-ui;
+      background: #f7f8f5;
+      color: #252e31;
+      font:
+        15px/1.85 Inter,
+        system-ui,
+        sans-serif;
     }
     a {
-      color: #67e8d4;
+      color: #bd4000;
     }
     h1 {
-      line-height: 1.2;
+      line-height: 1.15;
+      letter-spacing: -1px;
+      font-weight: 750;
+    }
+    .legal-brand {
+      display: block;
+      margin-bottom: 40px;
+    }
+    .legal-brand img {
+      width: 240px;
+      max-width: 100%;
+      height: auto;
+    }
+    a:focus-visible {
+      outline: 3px solid #bd4000;
+      outline-offset: 4px;
     }
   </style>
+  <a
+    class="legal-brand"
+    href="https://mthracelab.com/"
+    aria-label="MTH Race Lab home"
+    ><img src="/logo.svg" alt="MTH Race Lab" width="415" height="68"
+  /></a>
   <h1>How Apex Studio uses your data</h1>
   <p>
     Apex Studio analyses racing telemetry in your browser. Session recordings
