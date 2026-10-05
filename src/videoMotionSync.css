@@ -51,7 +51,7 @@
   display: block;
 }
 .motion-graph text {
-  fill: #94a3b8;
+  fill: var(--muted);
   font-size: 11px;
 }
 .motion-grid {
@@ -73,7 +73,7 @@
 }
 .motion-graphs small {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--muted);
 }
 @media (max-width: 650px) {
   .motion-graphs {

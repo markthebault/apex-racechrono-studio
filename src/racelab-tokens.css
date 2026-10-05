@@ -1,0 +1,18 @@
+:root {
+  --lab-paper: #f7f8f5;
+  --lab-surface: #ffffff;
+  --lab-ink: #252e31;
+  --lab-muted: #586568;
+  --lab-line: #dce2de;
+  --lab-night: #141d23;
+  --lab-night-text: #f7f8f5;
+  --lab-night-muted: #b6c1c5;
+  --lab-orange: #ff8855;
+  --lab-action: #bd4000;
+  --lab-radius: 10px;
+  /* Dark studio surfaces and the second comparison trace. */
+  --studio-surface: #1b262d;
+  --studio-raised: #243139;
+  --studio-border: #35434b;
+  --trace-secondary: #8ed4b2;
+}

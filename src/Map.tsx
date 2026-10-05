@@ -22,7 +22,7 @@ import {
   SPEED_SCALE,
 } from "./analysis";
 
-const safe = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? c : "#63e5d2");
+const safe = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? c : "#ff8855");
 // Top-down car, nose up. The body turns red under braking; the outline keeps the lap color.
 function carIcon(
   color: string,
@@ -41,7 +41,7 @@ function carIcon(
 }
 export function TrackMap({
   a,
-  colors = ["#63e5d2", "#f8a36b"],
+  colors = ["#ff8855", "#8ed4b2"],
   others = [],
   cursor,
   range,

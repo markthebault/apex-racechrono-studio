@@ -109,7 +109,7 @@ export function TracksMap({
       interactive: false,
     }).addTo(g);
     L.polyline(track.outline, {
-      color: "#63e5d2",
+      color: "#ff8855",
       weight: 4,
       interactive: false,
     }).addTo(g);
@@ -153,7 +153,7 @@ export function TracksMap({
         <div className="map-legend">
           {track && (
             <span>
-              <i style={{ background: "#63e5d2", height: 4 }} />
+              <i style={{ background: "#ff8855", height: 4 }} />
               Your fastest lap
             </span>
           )}
