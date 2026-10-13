@@ -2939,6 +2939,82 @@ button.primary {
     margin-left: 0;
   }
 }
+.vbo-lap-setup {
+  padding: 24px;
+  margin-bottom: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--lab-radius);
+  background: var(--studio-surface);
+}
+.vbo-setup-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.vbo-setup-heading > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.vbo-setup-heading h2 {
+  margin: 0 0 10px;
+  font-size: 22px;
+}
+.vbo-setup-heading p,
+.vbo-setup-note {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.vbo-setup-heading p {
+  margin: 0;
+}
+.vbo-setup-picker {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+.vbo-setup-picker select {
+  width: 100%;
+  min-width: 0;
+}
+.vbo-setup-recording {
+  display: grid;
+  gap: 6px;
+  margin: 20px 0;
+  overflow-wrap: anywhere;
+}
+.vbo-setup-recording span,
+.vbo-setup-recording small {
+  color: var(--muted);
+}
+.vbo-setup-map {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--lab-radius);
+}
+.vbo-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+.vbo-setup-note {
+  margin: 16px 0 0;
+  font-size: 12px;
+}
+@media (max-width: 520px) {
+  .vbo-lap-setup {
+    padding: 18px 14px;
+  }
+  .vbo-setup-heading {
+    gap: 10px;
+  }
+  .vbo-setup-heading h2 {
+    font-size: 19px;
+  }
+  .vbo-setup-actions {
+    flex-direction: column;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

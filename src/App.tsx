@@ -72,6 +72,7 @@ import { summarize } from "./summary";
 import { classifyFile, describeImport } from "./files";
 import { applyLine, reconcileVbo, resolveVbo } from "./vboImport";
 import { LineEditor } from "./LineEditor";
+import { VboLapSetup } from "./VboLapSetup";
 import { TrackChooser } from "./TrackChooser";
 import { assignTrack, knownTracks, summarizeTracks } from "./tracks";
 import type { TrackSummary } from "./tracks";
@@ -293,6 +294,9 @@ export default function App() {
   // Only sessions ticked in the collection reach the pickers, totals and optimal lap.
   const inScope = (sessionId: string) =>
     isSelected(settings.collection, sessionId);
+  const untimedVbo = sessions.filter(
+    (s) => inScope(s.id) && s.format === "vbo" && !s.laps.length,
+  );
   const scoped = useMemo(
     () => traces.filter((t) => isSelected(settings.collection, t.sessionId)),
     [traces, settings.collection],
@@ -1359,12 +1363,13 @@ export default function App() {
             </button>
           </div>
         </header>
+        {/* Leave the picker unfiltered: iPadOS can omit unfamiliar extensions
+            such as .vbo/.rcz from accept lists. importFiles checks each file. */}
         <input
           ref={input}
           hidden
           multiple
           type="file"
-          accept=".rcz,.vbo,.json,.zip"
           onChange={(e) => {
             importFiles(Array.from(e.target.files || []));
             e.target.value = "";
@@ -1376,7 +1381,9 @@ export default function App() {
               <div className="eyebrow">TRACK ANALYSIS STUDIO</div>
               <h1>
                 {tab === "Analyze"
-                  ? sa?.track || "Find your next second."
+                  ? sa?.track ||
+                    untimedVbo[0]?.track ||
+                    "Find your next second."
                   : tab}
               </h1>
               <p>
@@ -1467,6 +1474,16 @@ export default function App() {
             </div>
           ) : (
             <>
+              {(tab === "Analyze" ||
+                tab === "Video sync" ||
+                (tab === "Optimal lap" && !a)) && (
+                <VboLapSetup
+                  sessions={untimedVbo}
+                  preview={!a}
+                  onSetLine={setLineFor}
+                  onOpenSessions={() => setTab("Sessions")}
+                />
+              )}
               {(tab === "Analyze" || tab === "Video sync") && a && (
                 <>
                   <div className="stats">

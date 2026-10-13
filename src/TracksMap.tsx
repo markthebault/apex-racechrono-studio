@@ -154,7 +154,7 @@ export function TracksMap({
           {track && (
             <span>
               <i style={{ background: "#ff8855", height: 4 }} />
-              Your fastest lap
+              {track.best ? "Your fastest lap" : "Recorded GPS path"}
             </span>
           )}
           {!track && chosen && (
