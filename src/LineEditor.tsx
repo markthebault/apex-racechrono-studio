@@ -18,9 +18,11 @@ export function LineEditor({
   onApply: (line: FinishLine) => void;
   onClose: () => void;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const layer = useRef<L.LayerGroup | null>(null);
+  const pathBounds = useRef<L.LatLngTuple[]>([]);
   const [line, setLine] = useState<FinishLine | null>(session.line ?? null);
   const laps = useMemo(
     () =>
@@ -36,10 +38,14 @@ export function LineEditor({
     [line, session],
   );
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    const element = dialog.current!;
+    const previous = document.activeElement as HTMLElement | null;
+    element.showModal();
+    return () => {
+      element.close();
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
   useEffect(() => {
     const m = L.map(el.current!, {
       zoomAnimation: false,
@@ -68,6 +74,7 @@ export function LineEditor({
       path.push(p);
     }
     flush();
+    pathBounds.current = path;
     m.fitBounds(path, { padding: [30, 30], animate: false });
     layer.current = L.layerGroup().addTo(m);
     // The nearest recorded point to the click, if it is near enough to mean the track.
@@ -133,50 +140,88 @@ export function LineEditor({
   }, [line]);
   const times = laps.map((l) => l.end - l.start);
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <section
-        className="summary-card line-editor"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Set the start and finish line"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button className="summary-close" aria-label="Close" onClick={onClose}>
-          ×
+    <dialog
+      ref={dialog}
+      className="summary-card line-editor"
+      aria-label="Set the start and finish line"
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      <button className="summary-close" aria-label="Close" onClick={onClose}>
+        ×
+      </button>
+      <div className="summary-track">{session.track}</div>
+      <h2 className="review-title">Where is the start/finish line?</h2>
+      <p className="muted line-instructions">
+        Zoom in, then tap your recorded path at the start/finish location. The
+        arrow follows your direction of travel. Preview the laps before saving
+        the line.
+      </p>
+      <div className="line-map-tools">
+        <button
+          onClick={() =>
+            map.current?.fitBounds(pathBounds.current, {
+              padding: [30, 30],
+              animate: false,
+            })
+          }
+        >
+          Fit recording
         </button>
-        <div className="summary-track">{session.track}</div>
-        <h2 className="review-title">Where is the start/finish line?</h2>
-        <p className="muted">
-          This file has no lap data, so laps are cut where the car crosses a
-          line. Click the track at the start/finish line. The arrow shows the
-          direction the line is crossed, taken from the path you drove.
-        </p>
-        <div className="line-map" ref={el} />
-        <div className="line-result" role="status" aria-live="polite">
-          {!line ? (
-            "Click the track to place the line."
-          ) : laps.length ? (
-            <>
-              <b>
-                {laps.length} laps found. Best {lapTime(Math.min(...times))}.
-              </b>{" "}
-              Slowest {lapTime(Math.max(...times))}.
-            </>
-          ) : (
-            "No complete lap crosses this line in the direction of travel. Try another spot on the track."
-          )}
-        </div>
-        <div className="review-actions">
-          <button
-            className="sync-button"
-            disabled={!laps.length}
-            onClick={() => line && onApply(line)}
-          >
-            Use this line
-          </button>
-          <button onClick={onClose}>Cancel</button>
-        </div>
-      </section>
-    </div>
+        <button
+          disabled={!line}
+          onClick={() =>
+            line &&
+            map.current?.setView([line.lat, line.lon], 18, { animate: false })
+          }
+        >
+          Zoom to line
+        </button>
+        <button
+          disabled={!line}
+          onClick={() =>
+            setLine((old) =>
+              old
+                ? { ...old, heading: (old.heading + 180) % 360, source: "user" }
+                : old,
+            )
+          }
+        >
+          Reverse arrow
+        </button>
+      </div>
+      <div
+        className="line-map"
+        ref={el}
+        role="group"
+        aria-label="Recorded path: zoom in and tap to place the timing line"
+      />
+      <div className="line-result" role="status" aria-live="polite">
+        {!line ? (
+          "Tap the recorded path to place the line."
+        ) : laps.length ? (
+          <>
+            <b>
+              {laps.length} laps found. Best {lapTime(Math.min(...times))}.
+            </b>{" "}
+            Slowest {lapTime(Math.max(...times))}.
+          </>
+        ) : (
+          "No complete lap crosses this line in the direction of travel. Try another spot on the track."
+        )}
+      </div>
+      <div className="review-actions line-save-actions">
+        <button
+          className="sync-button"
+          disabled={!laps.length}
+          onClick={() => line && onApply(line)}
+        >
+          Use this line
+        </button>
+        <button onClick={onClose}>Cancel</button>
+      </div>
+    </dialog>
   );
 }

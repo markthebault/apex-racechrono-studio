@@ -1,14 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
   ArrowDownToLine,
   ArrowUpFromLine,
   ChevronRight,
   Cloud,
   Flag,
-  FolderOpen,
-  Layers,
   MapPin,
+  Menu,
   Play,
   Pause,
   Plus,
@@ -73,6 +71,11 @@ import { classifyFile, describeImport } from "./files";
 import { applyLine, reconcileVbo, resolveVbo } from "./vboImport";
 import { LineEditor } from "./LineEditor";
 import { VboLapSetup } from "./VboLapSetup";
+import {
+  MobileWorkspace,
+  WorkspaceCollection,
+  WorkspaceNavigation,
+} from "./WorkspaceMenu";
 import { TrackChooser } from "./TrackChooser";
 import { assignTrack, knownTracks, summarizeTracks } from "./tracks";
 import type { TrackSummary } from "./tracks";
@@ -92,6 +95,7 @@ import {
   onlySessions,
   selectionState,
   opportunityScope,
+  referenceLap,
 } from "./groups";
 import { Chart } from "./Chart";
 import { VideoPanel } from "./Video";
@@ -158,6 +162,8 @@ export default function App() {
     [busyA, setBusyA] = useState(false),
     [busyB, setBusyB] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useMemo(() => () => setMenuOpen(false), []);
   const [videoRestore, setVideoRestore] = useState<{
     lapId: string;
     timestamp: number;
@@ -222,22 +228,11 @@ export default function App() {
     pendingSave.current = t;
     return () => clearTimeout(t);
   }, [settings, sync, ready, removing]);
-  const activeTrack = sessions.find((s) =>
-    s.laps.some((l) => l.id === settings.a),
-  )?.trackId;
-  const reference = useMemo(() => {
-    const pool = sessions
-      .filter((s) => activeTrack === undefined || s.trackId === activeTrack)
-      .flatMap((s) => s.laps);
-    return (
-      settings.layouts.find((l) => pool.some((p) => p.id === l.referenceId))
-        ?.referenceId ||
-      [...pool]
-        .filter((l) => !l.issues.length)
-        .sort((a, b) => a.end - a.start - (b.end - b.start))[0]?.id ||
-      pool[0]?.id
-    );
-  }, [sessions, settings.layouts, activeTrack]);
+  const reference = useMemo(
+    () =>
+      referenceLap(sessions, settings.collection, settings.a, settings.layouts),
+    [sessions, settings.layouts, settings.collection, settings.a],
+  );
   useEffect(() => {
     if (!sessions.length) return;
     let live = true;
@@ -307,8 +302,7 @@ export default function App() {
   const a =
       scoped.find((t) => t.id === settings.a) ||
       scoped.find((t) => t.id === reference) ||
-      scoped[0] ||
-      traces[0],
+      scoped[0],
     b =
       settings.b === "optimal"
         ? ideal
@@ -322,7 +316,7 @@ export default function App() {
     const current = traces.find((t) => t.id === settings.a);
     if (current && !inScope(current.sessionId)) {
       const next = scoped.find((t) => t.id === reference) || scoped[0];
-      if (next) patch({ a: next.id });
+      patch({ a: next?.id || "", ...(!next ? { b: "" } : {}) });
     }
     const other = traces.find((t) => t.id === settings.b);
     if (other && !inScope(other.sessionId)) patch({ b: "" });
@@ -638,6 +632,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (document.querySelector(".modal-backdrop, dialog[open]")) return;
       const el = e.target as HTMLElement | null;
       if (
         el?.isContentEditable ||
@@ -663,7 +658,7 @@ export default function App() {
     const mine = (e: KeyboardEvent) => {
       if (e.code !== "Space" && e.key !== " ") return false;
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
-      if (document.querySelector(".modal-backdrop")) return false;
+      if (document.querySelector(".modal-backdrop, dialog[open]")) return false;
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName ?? "";
       const type = (el as HTMLInputElement | null)?.type;
@@ -744,6 +739,7 @@ export default function App() {
     let projectImported = false;
     let alreadyThere = 0,
       videos = 0;
+    const importedSessionIds: string[] = [];
     // VBO files borrow their finish line from sessions of the same track, so in a mixed
     // batch the RaceChrono sessions go first.
     const isVbo = (f: File) => /\.vbo$/i.test(f.name);
@@ -892,6 +888,7 @@ export default function App() {
                 ])
               : kept;
           await saveSession(s, file);
+          importedSessionIds.push(s.id);
           if (sessionsRef.current.some((x) => x.id === s.id)) alreadyThere++;
           else added.push(s);
           setSessions((old) =>
@@ -937,6 +934,19 @@ export default function App() {
         if (best) patch({ a: best.id, b: "" });
       }
       if (line) setStatus(line);
+    }
+    if (importedSessionIds.length && !projectImported) {
+      const imported = (await load()).records.map((r) => r.session);
+      const needsLine = importedSessionIds
+        .map((id) => imported.find((s) => s.id === id))
+        .find((s) => s?.format === "vbo" && !s.laps.length);
+      if (needsLine) {
+        setStatus(
+          "Recording imported. Place the start/finish line to calculate laps.",
+        );
+        setTab("Analyze");
+        setLineFor(needsLine.id);
+      }
     }
     return projectImported;
   }
@@ -1019,7 +1029,7 @@ export default function App() {
         all,
         chosen.map((x) => x.id),
       ),
-      ...(keep || !fastest ? {} : { a: fastest.id, b: "" }),
+      ...(keep ? {} : { a: fastest?.id || "", b: "" }),
     });
     setTab("Analyze");
   }
@@ -1173,6 +1183,10 @@ export default function App() {
     });
     return `${multiTrack ? `${owner?.track} · ` : ""}${time} · Lap ${t.lap.number} · ${lapTime(t.lap.end - t.lap.start)}`;
   };
+  const navigate = (name: string) => {
+    setTab(name);
+    if (name === "Video sync") setShowVideos(true);
+  };
   return (
     <div className="app">
       <GoogleDriveDialog
@@ -1223,88 +1237,18 @@ export default function App() {
           Apex <span>Track analysis studio</span>
         </div>
         <div className="workspace-label">YOUR WORKSPACE</div>
-        <nav>
-          {[
-            ["Analyze", Activity],
-            ["Sessions", FolderOpen],
-            ["Optimal lap", Layers],
-            ["Tracks", MapPin],
-            ["Video sync", Video],
-          ].map(([name, Icon]) => (
-            <button
-              key={String(name)}
-              aria-label={String(name)}
-              aria-current={tab === name ? "page" : undefined}
-              className={tab === name ? "selected" : ""}
-              onClick={() => {
-                setTab(String(name));
-                if (name === "Video sync") setShowVideos(true);
-              }}
-            >
-              {<Icon size={18} />}
-              <span>{String(name)}</span>
-              {name === "Sessions" && <small>{sessions.length}</small>}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-divider" />
-        <div className="workspace-label">CURRENT COLLECTION</div>
-        {sessions.length === 0 && (
-          <div className="collection-name">
-            <Flag size={16} />
-            Your first track day
-          </div>
-        )}
-        {groupSessions(sessions, "track").map((g) => {
-          return (
-            <div
-              className={`track-group${g.sessions.some((x) => x.trackId === sa?.trackId) ? " active" : ""}`}
-              key={g.key}
-            >
-              <button
-                className="collection-name"
-                aria-pressed={g.sessions.some((x) => x.trackId === sa?.trackId)}
-                title={`Analyze ${g.label}`}
-                onClick={() => analyzeTrack(g.sessions)}
-              >
-                <Flag size={16} />
-                <span>{g.label}</span>
-                <small>{g.sessions.length}</small>
-              </button>
-              {g.sessions.map((s) => (
-                <label className="session-check" key={s.id}>
-                  <input
-                    type="checkbox"
-                    checked={isSelected(settings.collection, s.id)}
-                    onChange={(e) =>
-                      patch({
-                        collection: toggleSessions(
-                          sessions.map((x) => x.id),
-                          settings.collection,
-                          [s.id],
-                          e.target.checked,
-                        ),
-                      })
-                    }
-                  />
-                  <span>
-                    {new Date(s.start).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                    })}
-                    <small>
-                      {new Date(s.start).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}{" "}
-                      · {s.laps.length} laps
-                    </small>
-                  </span>
-                </label>
-              ))}
-            </div>
-          );
-        })}
+        <WorkspaceNavigation
+          tab={tab}
+          count={sessions.length}
+          onNavigate={navigate}
+        />
+        <WorkspaceCollection
+          sessions={sessions}
+          collection={settings.collection}
+          activeTrack={sa?.trackId ?? untimedVbo[0]?.trackId}
+          onAnalyze={analyzeTrack}
+          onChange={(collection) => patch({ collection })}
+        />
         <button
           className="sidebar-import"
           onClick={() => input.current?.click()}
@@ -1313,6 +1257,16 @@ export default function App() {
         </button>
       </aside>
       <main>
+        <div className="mobile-workspace-bar">
+          <button
+            onClick={() => setMenuOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={menuOpen}
+          >
+            <Menu size={20} /> Tracks & sessions
+          </button>
+          <span>{tab}</span>
+        </div>
         <header>
           <div className="breadcrumb">
             Workspace <ChevronRight size={13} /> {sa?.track || "Track analysis"}{" "}
@@ -2858,6 +2812,19 @@ export default function App() {
           </button>
         </footer>
       </main>
+      {menuOpen && (
+        <MobileWorkspace
+          sessions={sessions}
+          collection={settings.collection}
+          activeTrack={sa?.trackId ?? untimedVbo[0]?.trackId}
+          tab={tab}
+          onNavigate={navigate}
+          onAnalyze={analyzeTrack}
+          onChange={(collection) => patch({ collection })}
+          onImport={() => input.current?.click()}
+          onClose={closeMenu}
+        />
+      )}
       {removeId && sessions.find((s) => s.id === removeId) && (
         <RemoveSession
           session={sessions.find((s) => s.id === removeId)!}
@@ -2912,6 +2879,16 @@ export default function App() {
               setStatus(
                 `${updated.laps.length} laps found for ${updated.track}.`,
               );
+              if (!current.laps.length) {
+                const chosen = sessions
+                  .filter(
+                    (s) =>
+                      s.trackId === updated.trackId &&
+                      (inScope(s.id) || s.id === updated.id),
+                  )
+                  .map((s) => (s.id === updated.id ? updated : s));
+                analyzeTrack(chosen);
+              }
               setLineFor(null);
             } catch (e) {
               report(e);

@@ -30,7 +30,7 @@ export function VboLapSetup({
       <div className="vbo-setup-heading">
         <Flag size={22} aria-hidden="true" />
         <div>
-          <h2>Your recording is ready. Set the lap timing.</h2>
+          <h2>Place the start/finish line to calculate laps.</h2>
           <p>
             GPS and telemetry were imported, but this VBO has no timed laps yet.
             Place the start/finish line on your recorded path to find complete
