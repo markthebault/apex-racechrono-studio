@@ -1,4 +1,4 @@
-import type { Session } from "./model";
+import type { Session, Settings } from "./model";
 export type GroupBy = "track" | "date";
 export type Group = { key: string; label: string; sessions: Session[] };
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -33,6 +33,30 @@ export function groupSessions(sessions: Session[], by: GroupBy): Group[] {
 // An empty collection means every session is in the analyzer.
 export const isSelected = (collection: string[], id: string) =>
   !collection.length || collection.includes(id);
+// References must come from the selected collection, including while switching tracks.
+// A collection containing only untimed recordings has no analysis reference yet.
+export function referenceLap(
+  sessions: Session[],
+  collection: string[],
+  currentLap: string,
+  layouts: Settings["layouts"],
+) {
+  const selected = sessions.filter((s) => isSelected(collection, s.id));
+  const activeTrack = selected.find((s) =>
+    s.laps.some((l) => l.id === currentLap),
+  )?.trackId;
+  const pool = selected
+    .filter((s) => activeTrack === undefined || s.trackId === activeTrack)
+    .flatMap((s) => s.laps);
+  return (
+    layouts.find((l) => pool.some((p) => p.id === l.referenceId))
+      ?.referenceId ||
+    [...pool]
+      .filter((l) => !l.issues.length)
+      .sort((a, b) => a.end - a.start - (b.end - b.start))[0]?.id ||
+    pool[0]?.id
+  );
+}
 // Returns the next collection. It refuses to leave the analyzer empty, and returns
 // an empty list when everything is selected so later imports join automatically.
 export function toggleSessions(

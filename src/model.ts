@@ -18,6 +18,8 @@ export type FinishLine = {
   lat: number;
   lon: number;
   heading: number;
+  // Optional separate finish; omitted when start and finish share the same line.
+  finish?: Omit<FinishLine, "finish">;
   // From another session of the same track, or placed by hand.
   source: "session" | "user";
 };

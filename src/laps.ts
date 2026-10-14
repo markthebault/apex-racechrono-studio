@@ -85,12 +85,25 @@ export function lapsFromLine(
 ): Lap[] {
   const c = crossings(times, lat, lon, line);
   const laps: Lap[] = [];
-  for (let i = 0; i + 1 < c.length; i++)
+  const intervals: [number, number][] = [];
+  if (line.finish) {
+    const ends = crossings(times, lat, lon, line.finish);
+    let j = 0;
+    for (let i = 0; i < c.length; i++) {
+      while (j < ends.length && ends[j] <= c[i]) j++;
+      // A fresh start cancels an unfinished run. Never reuse a finish crossing.
+      if (j < ends.length && (i + 1 === c.length || ends[j] < c[i + 1]))
+        intervals.push([c[i], ends[j++]]);
+    }
+  } else {
+    for (let i = 0; i + 1 < c.length; i++) intervals.push([c[i], c[i + 1]]);
+  }
+  for (const [start, end] of intervals)
     laps.push({
-      id: `${id}:${i + 1}`,
-      number: i + 1,
-      start: c[i],
-      end: c[i + 1],
+      id: `${id}:${laps.length + 1}`,
+      number: laps.length + 1,
+      start,
+      end,
       issues: [],
     });
   flagLaps(laps, times);
