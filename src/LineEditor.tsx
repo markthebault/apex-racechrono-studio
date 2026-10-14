@@ -24,18 +24,36 @@ export function LineEditor({
   const layer = useRef<L.LayerGroup | null>(null);
   const pathBounds = useRef<L.LatLngTuple[]>([]);
   const [line, setLine] = useState<FinishLine | null>(session.line ?? null);
+  const [separate, setSeparate] = useState(!!session.line?.finish);
+  const [finish, setFinish] = useState<FinishLine | null>(
+    session.line?.finish ?? null,
+  );
+  const [active, setActive] = useState<"start" | "finish">("start");
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const selected = active === "finish" ? finish : line;
+  const updateSelected = (
+    update: (old: FinishLine | null) => FinishLine | null,
+  ) => (active === "finish" ? setFinish : setLine)(update);
+  const timing = useMemo(
+    () =>
+      line && (!separate || finish)
+        ? { ...line, finish: separate ? finish! : undefined }
+        : null,
+    [line, finish, separate],
+  );
   const laps = useMemo(
     () =>
-      line
+      timing
         ? lapsFromLine(
             session.id,
             session.times,
             session.lat,
             session.lon,
-            line,
+            timing,
           )
         : [],
-    [line, session],
+    [timing, session],
   );
   useEffect(() => {
     const element = dialog.current!;
@@ -94,7 +112,7 @@ export function LineEditor({
       if (at < 0) return;
       const p = m.latLngToContainerPoint([session.lat[at], session.lon[at]]);
       if (p.distanceTo(e.containerPoint) > 40) return;
-      setLine({
+      (activeRef.current === "finish" ? setFinish : setLine)({
         lat: session.lat[at],
         lon: session.lon[at],
         heading: headingAt(session.lat, session.lon, at),
@@ -111,33 +129,40 @@ export function LineEditor({
   }, [session]);
   useEffect(() => {
     layer.current?.clearLayers();
-    if (!line) return;
-    // The line itself, 30 m each side, square across the direction of travel.
-    const h = ((line.heading + 90) * Math.PI) / 180;
-    const dLat = (30 * Math.cos(h)) / K,
-      dLon = (30 * Math.sin(h)) / (K * Math.cos((line.lat * Math.PI) / 180));
-    const ends: L.LatLngTuple[] = [
-      [line.lat - dLat, line.lon - dLon],
-      [line.lat + dLat, line.lon + dLon],
-    ];
-    L.polyline(ends, { color: "#fff", weight: 7, interactive: false }).addTo(
-      layer.current!,
-    );
-    L.polyline(ends, {
-      color: "#111",
-      weight: 7,
-      dashArray: "5 5",
-      interactive: false,
-    }).addTo(layer.current!);
-    const arrow = L.divIcon({
-      className: "line-arrow",
-      html: `<div style="transform:rotate(${line.heading}deg)">▲</div>`,
-      iconSize: [24, 24],
-    });
-    L.marker([line.lat, line.lon], { icon: arrow, interactive: false }).addTo(
-      layer.current!,
-    );
-  }, [line]);
+    const draw = (line: FinishLine, label: string, color: string) => {
+      // The line itself, 30 m each side, square across the direction of travel.
+      const h = ((line.heading + 90) * Math.PI) / 180;
+      const dLat = (30 * Math.cos(h)) / K,
+        dLon = (30 * Math.sin(h)) / (K * Math.cos((line.lat * Math.PI) / 180));
+      const ends: L.LatLngTuple[] = [
+        [line.lat - dLat, line.lon - dLon],
+        [line.lat + dLat, line.lon + dLon],
+      ];
+      L.polyline(ends, { color: "#fff", weight: 7, interactive: false }).addTo(
+        layer.current!,
+      );
+      L.polyline(ends, {
+        color,
+        weight: 7,
+        dashArray: "5 5",
+        interactive: false,
+      }).addTo(layer.current!);
+      const arrow = L.divIcon({
+        className: "line-arrow",
+        html: `<div style="transform:rotate(${line.heading}deg)">▲</div>`,
+        iconSize: [24, 24],
+      });
+      L.marker([line.lat, line.lon], { icon: arrow, interactive: false })
+        .bindTooltip(label, {
+          permanent: true,
+          direction: "top",
+          offset: [0, -14],
+        })
+        .addTo(layer.current!);
+    };
+    if (line) draw(line, separate ? "Start" : "Start / finish", "#111");
+    if (separate && finish) draw(finish, "Finish", "#238bda");
+  }, [line, finish, separate]);
   const times = laps.map((l) => l.end - l.start);
   return (
     <dialog
@@ -153,12 +178,39 @@ export function LineEditor({
         ×
       </button>
       <div className="summary-track">{session.track}</div>
-      <h2 className="review-title">Where is the start/finish line?</h2>
+      <h2 className="review-title">Set your timing lines</h2>
       <p className="muted line-instructions">
-        Zoom in, then tap your recorded path at the start/finish location. The
-        arrow follows your direction of travel. Preview the laps before saving
-        the line.
+        Zoom in and tap your recorded path to place the selected line. Rotate it
+        below; the arrow shows the crossing direction. Preview laps before
+        saving.
       </p>
+      <label className="line-separate">
+        <input
+          type="checkbox"
+          checked={separate}
+          onChange={(e) => {
+            setSeparate(e.target.checked);
+            setActive(e.target.checked ? "finish" : "start");
+          }}
+        />
+        Separate finish line
+      </label>
+      {separate && (
+        <div className="line-select" role="group" aria-label="Line to place">
+          <button
+            aria-pressed={active === "start"}
+            onClick={() => setActive("start")}
+          >
+            Start line
+          </button>
+          <button
+            aria-pressed={active === "finish"}
+            onClick={() => setActive("finish")}
+          >
+            Finish line
+          </button>
+        </div>
+      )}
       <div className="line-map-tools">
         <button
           onClick={() =>
@@ -171,18 +223,20 @@ export function LineEditor({
           Fit recording
         </button>
         <button
-          disabled={!line}
+          disabled={!selected}
           onClick={() =>
-            line &&
-            map.current?.setView([line.lat, line.lon], 18, { animate: false })
+            selected &&
+            map.current?.setView([selected.lat, selected.lon], 18, {
+              animate: false,
+            })
           }
         >
           Zoom to line
         </button>
         <button
-          disabled={!line}
+          disabled={!selected}
           onClick={() =>
-            setLine((old) =>
+            updateSelected((old) =>
               old
                 ? { ...old, heading: (old.heading + 180) % 360, source: "user" }
                 : old,
@@ -198,9 +252,44 @@ export function LineEditor({
         role="group"
         aria-label="Recorded path: zoom in and tap to place the timing line"
       />
+      <div className="line-rotations">
+        {(separate ? (["start", "finish"] as const) : (["start"] as const)).map(
+          (which) => {
+            const value = which === "start" ? line : finish;
+            const label = separate
+              ? `${which === "start" ? "Start" : "Finish"} line rotation`
+              : "Start / finish line rotation";
+            return (
+              <label className="line-rotation" key={which}>
+                <span>
+                  {label}
+                  <output>
+                    {value ? `${Math.round(value.heading)}°` : "Place line"}
+                  </output>
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="1"
+                  aria-label={label}
+                  disabled={!value}
+                  value={value?.heading ?? 0}
+                  onChange={(e) => {
+                    const heading = Number(e.target.value);
+                    (which === "start" ? setLine : setFinish)((old) =>
+                      old ? { ...old, heading, source: "user" } : old,
+                    );
+                  }}
+                />
+              </label>
+            );
+          },
+        )}
+      </div>
       <div className="line-result" role="status" aria-live="polite">
-        {!line ? (
-          "Tap the recorded path to place the line."
+        {!timing ? (
+          `Tap the recorded path to place the ${separate && line ? "finish" : "start / finish"} line.`
         ) : laps.length ? (
           <>
             <b>
@@ -209,16 +298,16 @@ export function LineEditor({
             Slowest {lapTime(Math.max(...times))}.
           </>
         ) : (
-          "No complete lap crosses this line in the direction of travel. Try another spot on the track."
+          "No complete lap crosses the timing lines in the direction of travel. Try another spot on the track."
         )}
       </div>
       <div className="review-actions line-save-actions">
         <button
           className="sync-button"
           disabled={!laps.length}
-          onClick={() => line && onApply(line)}
+          onClick={() => timing && onApply(timing)}
         >
-          Use this line
+          {separate ? "Use these lines" : "Use this line"}
         </button>
         <button onClick={onClose}>Cancel</button>
       </div>

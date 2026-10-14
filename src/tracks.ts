@@ -185,7 +185,7 @@ export function summarizeTracks(sessions: Session[]): TrackSummary[] {
       line = lineAtStart(best.session, lap);
       lineFrom = "lap start";
     }
-    const finish = best ? separateFinish(list, best) : null;
+    const finish = line?.finish ?? (best ? separateFinish(list, best) : null);
     const others = list
       .filter((s) => s.id !== ref.id && fastest.has(s.id))
       .slice(0, 8)

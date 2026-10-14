@@ -3292,3 +3292,62 @@ dialog.line-editor[open] {
     transition-duration: 0.01ms !important;
   }
 }
+
+.line-separate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  flex-shrink: 0;
+}
+.line-separate input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.line-select {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 10px;
+  flex-shrink: 0;
+}
+.line-select button {
+  flex: 1;
+  min-height: 36px;
+}
+.line-select button[aria-pressed="true"] {
+  border-color: #ff8855;
+  background: #ff885522;
+}
+.line-rotations {
+  display: flex;
+  gap: 18px;
+  padding: 12px 0;
+  flex-shrink: 0;
+}
+.line-rotation {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+.line-rotation span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.line-rotation output {
+  color: #ff8855;
+  font-variant-numeric: tabular-nums;
+}
+.line-rotation input {
+  display: block;
+  width: 100%;
+  margin: 8px 0 0;
+  accent-color: #ff8855;
+}
+@media (max-width: 500px) {
+  .line-rotations {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
