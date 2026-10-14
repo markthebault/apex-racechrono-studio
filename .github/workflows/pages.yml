@@ -19,7 +19,7 @@ jobs:
       - run: npm test
       - run: npm run build
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: validate
     runs-on: ubuntu-latest
     environment: production
@@ -37,4 +37,40 @@ jobs:
           CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
           VITE_GOOGLE_PICKER_API_KEY: ${{ secrets.VITE_GOOGLE_PICKER_API_KEY }}
+          CLOUDFLARE_PAGES_BRANCH: main
           APEX_PAGES_PUBLIC_URL: ${{ vars.APEX_PAGES_PUBLIC_URL }}
+  preview:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: validate
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    environment:
+      name: preview-pr-${{ github.event.pull_request.number }}
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_PICKER_API_KEY: ${{ secrets.VITE_GOOGLE_PICKER_API_KEY }}
+      - name: Deploy PR preview
+        id: deploy
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.147.0"
+          command: pages deploy dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }} --branch=pr-${{ github.event.pull_request.number }}
+      - name: Show preview URL
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.deployment-url }}
+          PREVIEW_ALIAS: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+        run: |
+          printf 'Preview: %s\n\nBranch URL: %s\n' "$PREVIEW_URL" "$PREVIEW_ALIAS" >> "$GITHUB_STEP_SUMMARY"

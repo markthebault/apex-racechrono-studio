@@ -33,6 +33,15 @@ if (
   throw Error(
     "Set Cloudflare account, Pages project and API token in your environment or untracked .env.pages.",
   );
+// Local uploads follow the checkout unless a branch is explicitly selected.
+const branch =
+  env.CLOUDFLARE_PAGES_BRANCH ||
+  env.GITHUB_HEAD_REF ||
+  spawnSync("git", ["branch", "--show-current"], {
+    encoding: "utf8",
+  }).stdout?.trim();
+if (!branch)
+  throw Error("Set CLOUDFLARE_PAGES_BRANCH for a detached checkout.");
 for (const [command, args] of [
   ["npm", ["run", "build"]],
   [
@@ -46,7 +55,7 @@ for (const [command, args] of [
       "--project-name",
       env.CLOUDFLARE_PAGES_PROJECT,
       "--branch",
-      "main",
+      branch,
       "--commit-dirty=true",
     ],
   ],
@@ -54,7 +63,7 @@ for (const [command, args] of [
   const result = spawnSync(command, args, { env, stdio: "inherit" });
   if (result.status !== 0) process.exit(result.status || 1);
 }
-if (env.APEX_PAGES_PUBLIC_URL) {
+if (branch === "main" && env.APEX_PAGES_PUBLIC_URL) {
   const html = readFileSync("dist/index.html", "utf8"),
     asset = html.match(/src="([^" ]+\.js)"/)?.[1];
   if (!asset) throw Error("Cannot identify the deployed build.");
