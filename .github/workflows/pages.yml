@@ -40,6 +40,9 @@ jobs:
           CLOUDFLARE_PAGES_BRANCH: main
           APEX_PAGES_PUBLIC_URL: ${{ vars.APEX_PAGES_PUBLIC_URL }}
   preview:
+    permissions:
+      contents: read
+      pull-requests: write
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     needs: validate
     runs-on: ubuntu-latest
@@ -74,3 +77,22 @@ jobs:
           PREVIEW_ALIAS: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
         run: |
           printf 'Preview: %s\n\nBranch URL: %s\n' "$PREVIEW_URL" "$PREVIEW_ALIAS" >> "$GITHUB_STEP_SUMMARY"
+      - name: Add preview link to PR description
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.deployment-url }}
+          PREVIEW_ALIAS: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.issue.number;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number });
+            const start = '<!-- cloudflare-preview:start -->';
+            const end = '<!-- cloudflare-preview:end -->';
+            const url = process.env.PREVIEW_ALIAS || process.env.PREVIEW_URL;
+            if (!url) throw new Error('Cloudflare did not return a preview URL.');
+            const section = `${start}\n**Cloudflare preview:** [Open PR preview](${url})\n\n[This deployment](${process.env.PREVIEW_URL}) · [Build logs](${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId})\n${end}`;
+            const body = pr.body || '';
+            const pattern = /<!-- cloudflare-preview:start -->[\s\S]*?<!-- cloudflare-preview:end -->/;
+            const next = pattern.test(body) ? body.replace(pattern, () => section) : `${section}\n\n${body}`;
+            if (next !== body) await github.rest.pulls.update({ owner, repo, pull_number, body: next });
