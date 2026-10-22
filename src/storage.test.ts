@@ -8,6 +8,8 @@ import {
   load,
   removeSession,
   saveHandle,
+  saveState,
+  readState,
 } from "./storage";
 
 const session = (id: string): Session => ({
@@ -92,7 +94,20 @@ describe("session removal", () => {
 
   it("deletes the stored recording and its references while preserving other sessions and shared videos", async () => {
     const { removed, kept } = await seed();
+    await saveState("engineer-history:removed", {
+      sessionIds: [removed.id],
+      replies: ["private answer"],
+    });
+    await saveState("engineer-history:kept", {
+      sessionIds: [kept.id],
+      replies: ["kept answer"],
+    });
     const next = await removeSession(removed, settings, sync);
+    expect(await readState("engineer-history:removed")).toBeUndefined();
+    expect(await readState("engineer-history:kept")).toEqual({
+      sessionIds: [kept.id],
+      replies: ["kept answer"],
+    });
     const saved = await load();
     expect(saved.records.map((r) => r.session.id)).toEqual([kept.id]);
     expect(await saved.records[0].file.text()).toBe("keep");

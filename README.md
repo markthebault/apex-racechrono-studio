@@ -16,6 +16,8 @@ If a VBO imports with no timed laps, the timing setup opens automatically. Zoom 
 
 On a phone or tablet, open **Tracks & sessions** to switch circuits or tick individual sessions for comparison. The analyzer uses the full screen width, with lap totals, chart units, playback readouts and export controls available on small screens.
 
+Open **Race Engineer** to compare each section’s three quickest valid passes on a track map, with speed and longitudinal/lateral G traces, then request advice for that corner. The whole-session debrief remains available alongside in-app chat using your own OpenAI, OpenRouter or compatible API key. The key stays in memory by default; remembering it in this browser is optional. Advanced tools retain WebMCP access and a portable review packet. See the [Stage 1 guide](docs/race-engineer.md) for data requirements, boundary modeling and current validation limits.
+
 Save a project archive to keep your analysis. Session data stays in your browser by default. Optional Google Drive sync uploads the selected archive. Video files stay local.
 
 GPS elevation and speed-based braking values are estimates. The 3D view does not show a surveyed road surface. Video playback depends on your browser's codec support.

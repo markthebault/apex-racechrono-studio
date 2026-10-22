@@ -74,6 +74,7 @@ export function trace(s: Session, l: Lap): Trace {
     label: `Lap ${l.number}`,
     lap: l,
     distance,
+    rawDistance: distance.slice(),
     times,
     lat,
     lon,

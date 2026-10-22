@@ -33,6 +33,7 @@ export default defineConfig(() => {
     .filter(Boolean);
   return {
     envDir: false,
+    worker: { format: "es" },
     define,
     test: { env },
     server: {

@@ -1,4 +1,12 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  Suspense,
+  lazy,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -106,6 +114,11 @@ import { matchProjectVideos, restoredVideoPosition } from "./projectVideos";
 import { GoogleDriveDialog } from "./GoogleDriveDialog";
 import { useGoogleDrive } from "./useGoogleDrive";
 import raceLabLogo from "./assets/racelab-logo-light.svg";
+const RaceEngineer = lazy(() =>
+  import("./raceEngineer/RaceEngineer").then((m) => ({
+    default: m.RaceEngineer,
+  })),
+);
 const defaults: Settings = {
   speedUnit: "km/h",
   colors: ["#ff8855", "#8ed4b2"],
@@ -161,6 +174,10 @@ export default function App() {
     [oppDay, setOppDay] = useState<string>(),
     [busyA, setBusyA] = useState(false),
     [busyB, setBusyB] = useState(false);
+  const [engineerFocus, setEngineerFocus] = useState<{
+    lapId: string;
+    time: [number, number];
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = useMemo(() => () => setMenuOpen(false), []);
@@ -289,6 +306,10 @@ export default function App() {
   // Only sessions ticked in the collection reach the pickers, totals and optimal lap.
   const inScope = (sessionId: string) =>
     isSelected(settings.collection, sessionId);
+  const engineerSessions = useMemo(
+    () => sessions.filter((s) => isSelected(settings.collection, s.id)),
+    [sessions, settings.collection],
+  );
   const untimedVbo = sessions.filter(
     (s) => inScope(s.id) && s.format === "vbo" && !s.laps.length,
   );
@@ -511,6 +532,20 @@ export default function App() {
       setCursor(0);
     }
   }, [a?.id, a?.length]);
+  // Apply evidence focus after the ordinary lap-change reset above.
+  useEffect(() => {
+    if (!engineerFocus || a?.id !== engineerFocus.lapId) return;
+    const window: [number, number] = engineerFocus.time.map((time) =>
+      interpolate(a.times, a.distance, time, 2000),
+    ) as [number, number];
+    if (window.every(Number.isFinite) && window[1] > window[0]) {
+      setPlaying(false);
+      setRange(window);
+      setCursor(window[0]);
+      setExact(engineerFocus.time[0]);
+    }
+    setEngineerFocus(null);
+  }, [engineerFocus, a]);
   useEffect(() => {
     if (!videoRestore || a?.id !== videoRestore.lapId) return;
     setPlaying(false);
@@ -1330,43 +1365,47 @@ export default function App() {
           }}
         />
         <div className="content">
-          <div className="page-title">
-            <div>
-              <div className="eyebrow">TRACK ANALYSIS STUDIO</div>
-              <h1>
-                {tab === "Analyze"
-                  ? sa?.track ||
-                    untimedVbo[0]?.track ||
-                    "Find your next second."
-                  : tab}
-              </h1>
-              <p>
-                {tab === "Analyze"
-                  ? "Every corner. Every input. A clearer picture of your lap."
-                  : tab === "Optimal lap"
-                    ? "Your best sectors, brought together across track days."
-                    : tab === "Video sync"
-                      ? "Match the moment. Save the timing. Keep your original files."
-                      : tab === "Tracks"
-                        ? "Find a circuit, then define the layout you actually drove."
-                        : "Your track days, all in one place."}
-              </p>
+          {tab !== "Race Engineer" && (
+            <div className="page-title">
+              <div>
+                <div className="eyebrow">TRACK ANALYSIS STUDIO</div>
+                <h1>
+                  {tab === "Analyze"
+                    ? sa?.track ||
+                      untimedVbo[0]?.track ||
+                      "Find your next second."
+                    : tab}
+                </h1>
+                <p>
+                  {tab === "Analyze"
+                    ? "Every corner. Every input. A clearer picture of your lap."
+                    : tab === "Race Engineer"
+                      ? "See where your laps differ and what to inspect next."
+                      : tab === "Optimal lap"
+                        ? "Your best sectors, brought together across track days."
+                        : tab === "Video sync"
+                          ? "Match the moment. Save the timing. Keep your original files."
+                          : tab === "Tracks"
+                            ? "Find a circuit, then define the layout you actually drove."
+                            : "Your track days, all in one place."}
+                </p>
+              </div>
+              {sessions.length > 0 && (
+                <span className="outline-badge">
+                  {sessions.filter((x) => inScope(x.id)).length === 1
+                    ? "1 SESSION"
+                    : `${sessions.filter((x) => inScope(x.id)).length} SESSIONS`}{" "}
+                  <span> / </span>
+                  {(() => {
+                    const laps = sessions
+                      .filter((x) => inScope(x.id))
+                      .reduce((n, x) => n + x.laps.length, 0);
+                    return `${laps} ${laps === 1 ? "LAP" : "LAPS"}`;
+                  })()}
+                </span>
+              )}
             </div>
-            {sessions.length > 0 && (
-              <span className="outline-badge">
-                {sessions.filter((x) => inScope(x.id)).length === 1
-                  ? "1 SESSION"
-                  : `${sessions.filter((x) => inScope(x.id)).length} SESSIONS`}{" "}
-                <span> / </span>
-                {(() => {
-                  const laps = sessions
-                    .filter((x) => inScope(x.id))
-                    .reduce((n, x) => n + x.laps.length, 0);
-                  return `${laps} ${laps === 1 ? "LAP" : "LAPS"}`;
-                })()}
-              </span>
-            )}
-          </div>
+          )}
           {error && (
             <div className="notice error">
               {error}
@@ -1987,6 +2026,36 @@ export default function App() {
                     pressure is unavailable unless recorded
                   </div>
                 </>
+              )}
+              {tab === "Race Engineer" && (
+                <Suspense
+                  fallback={<p role="status">Loading Race Engineer…</p>}
+                >
+                  <RaceEngineer
+                    sessions={engineerSessions}
+                    referenceId={settings.a || reference || ""}
+                    settings={settings.engineer}
+                    excluded={settings.excluded}
+                    speedUnit={settings.speedUnit}
+                    onChange={(engineer) => patch({ engineer })}
+                    onSaveSettings={async (engineer) => {
+                      patch({ engineer });
+                      await saveState("settings", { ...settings, engineer });
+                    }}
+                    onEvidence={(first, second) => {
+                      patch({
+                        a: first.lapId,
+                        b: second?.lapId || "",
+                        extras: [],
+                      });
+                      setEngineerFocus({
+                        lapId: first.lapId,
+                        time: first.time,
+                      });
+                      setTab("Analyze");
+                    }}
+                  />
+                </Suspense>
               )}
               {tab === "Sessions" && (
                 <>
