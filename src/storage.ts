@@ -2,6 +2,7 @@ import { openDB } from "idb";
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
 import type { Session, Settings, SyncFile, Binding } from "./model";
 import { applyLine } from "./vboImport";
+import { validateSettings as validateEngineerSettings } from "./raceEngineer/contracts";
 const db = openDB("apex-studio", 1, {
   upgrade(d) {
     d.createObjectStore("sessions", { keyPath: "session.id" });
@@ -38,6 +39,47 @@ export async function removeSession(
     lapIds.has(id) || id.startsWith(session.id + ":");
   const nextSettings: Settings = {
     ...settings,
+    ...(settings.engineer
+      ? {
+          engineer: {
+            ...settings.engineer,
+            contexts: Object.fromEntries(
+              Object.entries(settings.engineer.contexts).filter(
+                ([id]) => id !== session.id,
+              ),
+            ),
+            mappings: Object.fromEntries(
+              Object.entries(settings.engineer.mappings).filter(
+                ([id]) => id !== session.id,
+              ),
+            ),
+            corners: Object.fromEntries(
+              Object.entries(settings.engineer.corners).filter(
+                ([id]) => !ownsLap(id),
+              ),
+            ),
+            reports: settings.engineer.reports.filter((r) => {
+              if (r.sessionIds?.includes(session.id)) return false;
+              const refs = [
+                ...r.priorities.flatMap((p) => p.evidenceIds),
+                ...(r.cornerReviews?.flatMap((c) => c.evidenceIds) ?? []),
+                ...(r.debrief?.findings.flatMap((f) => [
+                  ...f.evidenceIds,
+                  ...f.lapIds,
+                ]) ?? []),
+                ...(r.debrief?.practicePlan.flatMap((p) => p.evidenceIds) ??
+                  []),
+              ];
+              // An empty-source debrief can still describe this recording in prose.
+              // Without stored scope metadata, conservatively clear those reports too.
+              return (
+                (refs.length > 0 || !!r.sessionIds?.length) &&
+                !refs.some((id) => ownsLap(id) || id.includes(session.id))
+              );
+            }),
+          },
+        }
+      : {}),
     a: ownsLap(settings.a) ? "" : settings.a,
     b: ownsLap(settings.b) ? "" : settings.b,
     collection: settings.collection.filter((id) => id !== session.id),
@@ -67,6 +109,17 @@ export async function removeSession(
   const tx = d.transaction(["sessions", "state", "handles"], "readwrite");
   try {
     await tx.objectStore("sessions").delete(session.id);
+    for (const key of await tx.objectStore("state").getAllKeys()) {
+      if (
+        typeof key === "string" &&
+        (key.startsWith("engineer-cache:") ||
+          key.startsWith("engineer-history:"))
+      ) {
+        const entry = await tx.objectStore("state").get(key);
+        if (entry?.sessionIds?.includes(session.id))
+          await tx.objectStore("state").delete(key);
+      }
+    }
     await tx.objectStore("state").put(nextSettings, "settings");
     await tx.objectStore("state").put(nextSync, "sync");
     for (const hash of removedVideos)
@@ -125,29 +178,44 @@ export function work<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(Error("Operation cancelled."));
+      return;
+    }
     const w = new Worker(new URL("./worker.ts", import.meta.url), {
       type: "module",
     });
-    const abort = () => {
+    let settled = false;
+    const finish = (error?: Error, result?: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       w.terminate();
-      reject(Error("Operation cancelled."));
+      error ? reject(error) : resolve(result as T);
     };
+    const abort = () => finish(Error("Operation cancelled."));
+    const timer = setTimeout(
+      () => finish(Error("Operation timed out.")),
+      kind.startsWith("engineer") ? 120000 : 600000,
+    );
     signal?.addEventListener("abort", abort, { once: true });
-    w.onerror = (e) => {
-      w.terminate();
-      reject(Error(e.message));
-    };
+    w.onerror = (e) => finish(Error(e.message));
+    w.onmessageerror = () =>
+      finish(Error("Worker response could not be decoded."));
     w.onmessage = ({ data: d }) => {
+      if (settled) return;
       if (d.progress !== undefined) {
         onProgress?.(d.progress);
         return;
       }
-      w.terminate();
-      signal?.removeEventListener("abort", abort);
-      if (d.error) reject(Error(d.error));
-      else resolve(d.result);
+      finish(d.error ? Error(d.error) : undefined, d.result);
     };
-    w.postMessage({ kind, ...data });
+    try {
+      w.postMessage({ ...data, kind });
+    } catch (e) {
+      finish(e instanceof Error ? e : Error(String(e)));
+    }
   });
 }
 export function download(
@@ -376,6 +444,8 @@ export async function readProject(
 export type LoadedProject = Awaited<ReturnType<typeof readProject>>;
 
 export function validateSettings(s: any) {
+  if (s?.engineer !== undefined)
+    s.engineer = validateEngineerSettings(s.engineer);
   const list = (x: any) =>
     Array.isArray(x) && x.every((v) => typeof v === "string");
   if (
@@ -445,4 +515,49 @@ export function validateSettings(s: any) {
     throw Error("Invalid session grouping.");
   if (s.speedUnit && !["km/h", "mph"].includes(s.speedUnit))
     throw Error("Invalid speed unit.");
+}
+
+// Disposable derived cache shares the existing store; no source data migration.
+export async function readState<T>(key: string): Promise<T | undefined> {
+  return (await db).get("state", key);
+}
+export async function readEngineerCache<T>(
+  key: string,
+): Promise<T | undefined> {
+  try {
+    return (await readState<{ value: T }>("engineer-cache:" + key))?.value;
+  } catch {
+    return undefined;
+  }
+}
+export async function writeEngineerCache(
+  key: string,
+  value: unknown,
+  sessionIds: string[],
+): Promise<boolean> {
+  try {
+    const d = await db,
+      tx = d.transaction("state", "readwrite"),
+      store = tx.objectStore("state");
+    const keys = (await store.getAllKeys()).filter(
+      (k) => typeof k === "string" && k.startsWith("engineer-cache:"),
+    );
+    // Bound disposable entries; quota failure never discards source sessions.
+    if (keys.length >= 12) {
+      const entries = await Promise.all(
+        keys.map(async (k) => ({ k, at: (await store.get(k))?.at ?? 0 })),
+      );
+      entries.sort((a, b) => a.at - b.at);
+      for (const entry of entries.slice(0, keys.length - 11))
+        await store.delete(entry.k);
+    }
+    await store.put(
+      { value, sessionIds, at: Date.now() },
+      "engineer-cache:" + key,
+    );
+    await tx.done;
+    return true;
+  } catch {
+    return false;
+  }
 }

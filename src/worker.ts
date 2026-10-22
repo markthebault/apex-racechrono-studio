@@ -5,6 +5,36 @@ import { fingerprintOf } from "./fingerprint";
 import { trace, align, optimal } from "./analysis";
 self.onmessage = async ({ data }) => {
   try {
+    if (data.kind === "engineer") {
+      const { buildSnapshot } = await import("./raceEngineer/pipeline");
+      self.postMessage({ result: await buildSnapshot(data.input) });
+      return;
+    }
+    if (data.kind === "engineer-profile") {
+      const { speedProfile } = await import("./raceEngineer/speedProfile");
+      self.postMessage({ result: speedProfile(data.line, data.limits) });
+      return;
+    }
+    if (data.kind === "engineer-model") {
+      const { corridor } = await import("./raceEngineer/boundaries");
+      const { optimize } = await import("./raceEngineer/optimizer");
+      const { speedProfile } = await import("./raceEngineer/speedProfile");
+      const c = await corridor(
+        data.asset,
+        data.layoutId,
+        data.width,
+        data.clearance,
+        data.nodes,
+      );
+      const line = await optimize(c);
+      self.postMessage({
+        result: {
+          line,
+          profile: data.limits ? speedProfile(line, data.limits) : null,
+        },
+      });
+      return;
+    }
     if (data.kind === "analysis") {
       const raw = data.sessions.flatMap((s: any) =>
         s.laps.map((l: any) => trace(s, l)),

@@ -4,7 +4,7 @@ A local browser workspace for RaceChrono sessions, GPS traces, cross-session lap
 
 ![Nordschleife BTG in Apex: the fastest recorded lap compared with another lap on a 3D elevation trace, with speed colours, braking zones and telemetry.](docs/images/nordschleife-3d.png)
 
-*Recorded Nordschleife BTG laps, shown with speed colours, estimated braking zones and 2× elevation. GPS gaps remain visible.*
+_Recorded Nordschleife BTG laps, shown with speed colours, estimated braking zones and 2× elevation. GPS gaps remain visible._
 
 ## Run
 
@@ -157,3 +157,7 @@ For folder browsing, enable the Google Picker API in the same project. Configure
 Publish only `dist/`. The `deploy:pages` script reads the API token from the environment or a local credential file, and account/project/public-address settings from the environment or untracked `.env.pages`. Required keys are `CLOUDFLARE_API_TOKEN` (or `CLOUDFLARE_TOKEN`), `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_PAGES_PROJECT`. `CLOUDFLARE_TOKEN_FILE` can point at a separate credential file. `APEX_PAGES_PUBLIC_URL` enables verification of the exact built JavaScript asset at the public address.
 
 The GitHub workflow runs tests and a build on pull requests. On `main` it deploys using repository secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and optional `VITE_GOOGLE_CLIENT_ID` and `VITE_GOOGLE_PICKER_API_KEY`, plus repository variables `CLOUDFLARE_PAGES_PROJECT` and `APEX_PAGES_PUBLIC_URL`. Pull request validation receives no deployment credentials. Create the Pages project and attach its intended custom domain before the first upload. The existing local HTTPS service remains a separate deployment.
+
+## Race Engineer
+
+The [Stage 1 guide](docs/race-engineer.md) documents the telemetry contracts, quality gates, native channel mapping, scoped WebMCP tools, report format, local boundary interchange, numerical assumptions and persistence. Static hosting and local workers are retained. In-app AI uses a browser-to-provider Chat Completions tool loop with a user-supplied key; external agents can use WebMCP. Both consume the same query definitions and scoped analysis service, with independent consent. Credentials are outside project settings and archives. Stage 2 video/vision analysis is deferred.

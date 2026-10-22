@@ -50,6 +50,8 @@ export type Trace = {
   label: string;
   lap: Lap;
   distance: Float64Array;
+  // Physical path arc length; distance may be replaced by aligned reference progress.
+  rawDistance?: Float64Array;
   times: Float64Array;
   lat: Float64Array;
   lon: Float64Array;
@@ -83,6 +85,7 @@ export type Binding = {
 export type SyncFile = { format: "apex-sync"; version: 1; bindings: Binding[] };
 export type ChartConfig = { id: string; channels: string[]; height: number };
 export type Settings = {
+  engineer?: import("./raceEngineer/contracts").EngineerSettings;
   speedUnit: "km/h" | "mph";
   showEmptyCharts?: boolean;
   colors: [string, string];

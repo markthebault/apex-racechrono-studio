@@ -27,6 +27,7 @@ export function WorkspaceNavigation({
         ["Analyze", Activity],
         ["Sessions", FolderOpen],
         ["Optimal lap", Layers],
+        ["Race Engineer", Activity],
         ["Tracks", MapPin],
         ["Video sync", Video],
       ].map(([name, Icon]) => (
