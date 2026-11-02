@@ -1,4 +1,4 @@
-import { detectTurns, turnLimitations } from "./turns";
+import { detectTurns, turnFocusRange, turnLimitations } from "./turns";
 import { setTurnCatalogue } from "./agent/turns";
 import { AgentPanel } from "./agent/AgentPanel";
 import {
@@ -1371,10 +1371,7 @@ export default function App() {
                     if (t && a) {
                       setTab("Analyze");
                       setExact(null);
-                      setRange([
-                        Math.max(0, t.start - 30),
-                        Math.min(a.length, t.end + 50),
-                      ]);
+                      setRange(turnFocusRange(t, a.length));
                       setCursor(t.position);
                       setSelectedTurn(t.id);
                     }
@@ -1832,10 +1829,7 @@ export default function App() {
                           onClick={() => {
                             setPlaying(false);
                             setExact(null);
-                            setRange([
-                              Math.max(0, t.start - 30),
-                              Math.min(a.length, t.end + 50),
-                            ]);
+                            setRange(turnFocusRange(t, a.length));
                             setCursor(t.position);
                             setSelectedTurn(t.id);
                           }}
@@ -1862,10 +1856,7 @@ export default function App() {
                       if (t) {
                         setPlaying(false);
                         setExact(null);
-                        setRange([
-                          Math.max(0, t.start - 30),
-                          Math.min(a.length, t.end + 50),
-                        ]);
+                        setRange(turnFocusRange(t, a.length));
                         setCursor(t.position);
                         setSelectedTurn(t.id);
                       }
