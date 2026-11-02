@@ -9,3 +9,6 @@ evidence/
 .env
 .env.*
 !.env.example
+
+# Four demo sessions explicitly approved for version control. Never publish them.
+!examples/hockenheimring/*.rcz

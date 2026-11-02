@@ -1,3 +1,4 @@
+import { reviewSelection } from "../agent/selection";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, ArrowUpRight, Sparkles } from "lucide-react";
 import type { Session } from "../model";
@@ -214,6 +215,15 @@ export function CornerCoach({
   const comparison = snapshot.evidence.find(
     (e) => e.id === comparisonPass?.evidenceId,
   );
+  useEffect(() => {
+    reviewSelection.set({
+      cornerId,
+      snapshotId: snapshot.id,
+      referenceLapId: snapshot.referenceId,
+      comparisonLapId: comparisonPass?.lapId,
+    });
+    return () => reviewSelection.set(null);
+  }, [cornerId, snapshot.id, snapshot.referenceId, comparisonPass?.lapId]);
   const corner = data.corner,
     index = snapshot.corners.findIndex((c) => c.id === cornerId);
   const best = data.passes.find((p) => p.rank === 1),
@@ -433,11 +443,11 @@ export function CornerCoach({
                   disabled={busy || !canAnalyze || !best}
                   onClick={onAnalyze}
                 >
-                  Analyze this corner <Sparkles size={14} />
+                  Copy corner review request <Sparkles size={14} />
                 </button>
                 <p>
                   {!canAnalyze
-                    ? "Connect your API key above to get AI advice."
+                    ? "Connect your MCP agent above to request advice."
                     : "Uses the selected model and reasoning effort."}
                 </p>
               </div>

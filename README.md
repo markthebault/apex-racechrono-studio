@@ -16,7 +16,7 @@ If a VBO imports with no timed laps, the timing setup opens automatically. Zoom 
 
 On a phone or tablet, open **Tracks & sessions** to switch circuits or tick individual sessions for comparison. The analyzer uses the full screen width, with lap totals, chart units, playback readouts and export controls available on small screens.
 
-Open **Race Engineer** to compare each section’s three quickest valid passes on a track map, with speed and longitudinal/lateral G traces, then request advice for that corner. The whole-session debrief remains available alongside in-app chat using your own OpenAI, OpenRouter or compatible API key. The key stays in memory by default; remembering it in this browser is optional. Advanced tools retain WebMCP access and a portable review packet. See the [Stage 1 guide](docs/race-engineer.md) for data requirements, boundary modeling and current validation limits.
+Open **Race Engineer** to compare each section’s three quickest valid passes on a track map, with speed and longitudinal/lateral G traces. Connect your local MCP agent, copy a corner or whole-session review request into its chat, and let it return evidence-linked advice directly to Apex. No LLM API credentials are entered in Apex. See the [connection guide](docs/local-mcp.md) and [Race Engineer guide](docs/race-engineer.md).
 
 Save a project archive to keep your analysis. Session data stays in your browser by default. Optional Google Drive sync uploads the selected archive. Video files stay local.
 
@@ -32,3 +32,7 @@ npm run dev -- --port 5174
 ```
 
 See the [technical guide](TECHNICAL_GUIDE.md) for file formats, video sync, backups, optional Drive sync, and development checks.
+
+## Local agent connection
+
+Connect a local MCP agent to inspect the current workspace, query telemetry, navigate comparisons and request synchronized video stills. Follow the [three-step connection guide](docs/local-mcp.md#connect-in-three-steps). The header pill is orange while waiting and green when your agent is connected. The website remains static; the MCP helper runs locally.

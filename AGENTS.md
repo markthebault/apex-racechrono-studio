@@ -12,6 +12,7 @@ If the deploy check fails, fix it or report the failure. Do not leave the servic
 
 ## Rules
 
+- Demo exception explicitly authorized by the maintainer: the four supplied Hockenheimring `.rcz` files in `examples/hockenheimring/` may be versioned for reuse. They must never enter `public/` or `dist/`. All other recordings remain private.
 - Only `dist/` is published. Never put RaceChrono files, videos or other private fixtures in `public/`, `dist/` or the repository. The `/__private/` routes exist only in the Vite dev server.
 - Local paths, hostnames and recordings belong in untracked files: `.env.local`, `.env.deploy`, `.private/`, `evidence/`. Do not write them into tracked files, tests, documentation or commit messages.
 - Ports 5173 (Tailscale HTTPS) and 5180 (loopback Node server) belong to the service. Run the dev server with `npm run dev -- --port 5174`.
