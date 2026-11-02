@@ -38,3 +38,5 @@ See the [technical guide](TECHNICAL_GUIDE.md) for file formats, video sync, back
 Connect a local MCP agent to inspect the current workspace, query telemetry, navigate comparisons and request synchronized video stills. Follow the [three-step connection guide](docs/local-mcp.md#connect-in-three-steps). The header pill is orange while waiting and green when your agent is connected. The website remains static; the MCP helper runs locally.
 
 Analyze labels detected GPS bends **T1, T2, …** on the 2D/3D map. Select a turn to focus its telemetry; the same IDs and distance ranges are available to the MCP agent. Numbering is automatic and may differ from the circuit’s official turns.
+
+Connected bends can receive separate numbers when two sustained tightening points are separated by a clear relaxation, even without a straight between them. Brief GPS spikes and shallow shoulders do not create additional turns.
