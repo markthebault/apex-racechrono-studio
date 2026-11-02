@@ -47,5 +47,14 @@
     "type": "git",
     "url": "git+https://github.com/markthebault/apex-racechrono-studio.git"
   },
-  "homepage": "https://github.com/markthebault/apex-racechrono-studio#readme"
+  "homepage": "https://github.com/markthebault/apex-racechrono-studio#readme",
+  "bin": {
+    "apex-mcp": "mcp/server.mjs"
+  },
+  "files": [
+    "mcp/server.mjs",
+    "README.md",
+    "LICENSE",
+    "docs/local-mcp.md"
+  ]
 }

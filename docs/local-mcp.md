@@ -6,26 +6,34 @@ Apex remains a static app. A Node.js helper runs alongside your agent and connec
 
 ### 1. Add Apex to your agent
 
-Install [Node.js 22 or newer](https://nodejs.org/). In your Apex checkout, run this once:
+Install [Node.js 22 or newer](https://nodejs.org/). You do not need to download Apex’s source code.
 
-```sh
-npm ci
-```
-
-Open your AI app’s **MCP settings** and add the following configuration. Replace `/path/to/apex` with the location of your checkout. Your agent starts the helper automatically.
+In your AI app’s **MCP settings**, use **npx** as the command and these arguments:
 
 ```json
 {
   "mcpServers": {
     "apex": {
-      "command": "node",
-      "args": ["/path/to/apex/mcp/server.mjs"]
+      "command": "npx",
+      "args": [
+        "--yes",
+        "--package=github:markthebault/apex-racechrono-studio",
+        "apex-mcp"
+      ]
     }
   }
 }
 ```
 
-If your app has a form instead of a JSON editor, enter **Apex** as the name, **node** as the command, and the full path to **mcp/server.mjs** as the argument. Restart the agent or refresh its MCP tools after adding it.
+Your agent downloads the helper from Apex’s public GitHub repository and starts it automatically. Restart the agent or refresh its MCP tools after adding it. The first download may take longer; allow at least a minute for startup in clients that support a startup-timeout setting. Internet access is needed to install the helper.
+
+The equivalent terminal command is:
+
+```sh
+npx --yes --package=github:markthebault/apex-racechrono-studio apex-mcp
+```
+
+The terminal command starts an MCP stdio server, so it normally waits for an agent rather than showing an interactive interface. For a persistent installation, you can use `npm install --global github:markthebault/apex-racechrono-studio` and configure **apex-mcp** as the command. This installs from GitHub; it is not a package published to the npm registry. For a fixed version, append `#<commit-or-tag>` to the GitHub package reference.
 
 ### 2. Open your pairing link
 
@@ -61,13 +69,17 @@ With video linked and frame sharing enabled:
 
 ## Local development and troubleshooting
 
+Contributors can still run `npm ci` in a checkout and configure `node` with the full path to `mcp/server.mjs`. `npm run mcp` also starts the helper from a checkout.
+
+
 For local development, run `npm run dev -- --port 5174`. Set `APEX_MCP_APP` to that development URL in the MCP process environment. If that port is occupied, use the actual URL Vite reports. `APEX_MCP_PORT` changes the helper's default port (7318); `APEX_MCP_ORIGINS` adds an explicit comma-separated origin allowlist for other deployments. These settings belong in untracked local configuration. The helper always binds to 127.0.0.1. The browser and helper must be on the same computer. Remote agents require a separately designed secure connection.
 
 Hosted HTTPS pages need browser permission to access loopback services. Start with Chrome or Edge; support depends on the browser's local network policy. Safari is not validated. If connection fails, check site permissions, the configured app origin, and that the helper is running. Never expose the helper on a public interface.
 
 ## Tools
 
-- `apex_engineer_context`: current Race Engineer snapshot, pending user request and expected report schema. The tab must be open and ready.
+- `apex_turns`: numbered detected bends (T1, T2…), reference ID, direction, distance bounds and selection, matching Analyze. These are automatic GPS labels, not official circuit numbering. `apex_view` accepts a `turnId` to focus one; use a separate call when changing laps.
+- `apex_engineer_context`: current Race Engineer snapshot, pending user request, expected report schema and links from its review windows to Analyze turn IDs. The tab must be open and ready.
 - `apex_engineer_report`: return a report for that exact request and snapshot, validate its sources, merge existing advice and save it in Apex. Invalid, stale or replayed reports are refused.
 - `apex_connection`: pairing URL and connected status; available before pairing.
 - `apex_import_session`: read a local `.rcz`/`.vbo` file (maximum 8 MiB) and import it into the paired tab, with control permission. Larger files can be imported through the UI. This helper provides no arbitrary file-writing or JavaScript-execution tool.

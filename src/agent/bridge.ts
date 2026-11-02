@@ -1,10 +1,16 @@
 import { analysisTools } from "../raceEngineer/tools";
-export const guide = `Read apex_state first. For requests created in Race Engineer, use apex_engineer_context and its exact snapshot ID instead of preparing a separate analysis; return the validated report through apex_engineer_report. Distinguish selected laps, visible range and cursor from the approved analysis snapshot. Call apex_prepare_analysis with explicit recorded lapIds and referenceId, then use the returned snapshotId with analysis tools. Telemetry queries use meters of reference progress and canonical channels. GPS cannot prove pedal inputs, unused grip or the ideal line. Compare multiple clean repetitions; report gaps, contrary evidence and traffic/condition hypotheses. Every theoretical lap must include its sector count; all laps contribute except sectors overlapping GPS gaps longer than 2 seconds. Video images are optional evidence: inspect sequences before/at/after a corner and compare laps. State visible observations separately from hypotheses; do not infer exact edge distances, camera calibration or optimal apex from a still. No video means no visual line verdict.`;
+export const guide = `Read apex_state first. Numbered turns (T1, T2…) are available via apex_turns and in state; use their reference ID and distance ranges. They are detected GPS bends, not official circuit numbering. Race Engineer windows are separate; apex_engineer_context maps them to these turn IDs. For requests created in Race Engineer, use apex_engineer_context and its exact snapshot ID instead of preparing a separate analysis; return the validated report through apex_engineer_report. Distinguish selected laps, visible range and cursor from the approved analysis snapshot. Call apex_prepare_analysis with explicit recorded lapIds and referenceId, then use the returned snapshotId with analysis tools. Telemetry queries use meters of reference progress and canonical channels. GPS cannot prove pedal inputs, unused grip or the ideal line. Compare multiple clean repetitions; report gaps, contrary evidence and traffic/condition hypotheses. Every theoretical lap must include its sector count; all laps contribute except sectors overlapping GPS gaps longer than 2 seconds. Video images are optional evidence: inspect sequences before/at/after a corner and compare laps. State visible observations separately from hypotheses; do not infer exact edge distances, camera calibration or optimal apex from a still. No video means no visual line verdict.`;
 const schema = (
   properties: Record<string, object> = {},
   required: string[] = [],
 ) => ({ type: "object", properties, required, additionalProperties: false });
 export const tools = [
+  {
+    name: "apex_turns",
+    description:
+      "Read the numbered GPS bends shown on Analyze (T1, T2…), reference ID, distance bounds, directions and selection. Not official circuit turn numbers. Focus one with apex_view turnId.",
+    inputSchema: schema(),
+  },
   {
     name: "apex_engineer_context",
     description:
@@ -52,6 +58,11 @@ export const tools = [
           "Video sync",
           "Optimal lap",
         ],
+      },
+      turnId: {
+        type: "string",
+        description:
+          "Detected turn ID from apex_turns. Use alone (with optional revision) to focus Analyze.",
       },
       lapId: { type: "string" },
       comparisonLapId: { type: "string" },

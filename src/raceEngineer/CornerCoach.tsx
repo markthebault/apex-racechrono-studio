@@ -1,3 +1,4 @@
+import { useTurnCatalogue, engineerTurnLinks } from "../agent/turns";
 import { reviewSelection } from "../agent/selection";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, ArrowUpRight, Sparkles } from "lucide-react";
@@ -192,6 +193,13 @@ export function CornerCoach({
   canAnalyze: boolean;
   humanize: (s: string) => string;
 }) {
+  const turnCatalogue = useTurnCatalogue();
+  const links = useMemo(
+    () => engineerTurnLinks(snapshot, sessions),
+    [snapshot, sessions, turnCatalogue],
+  );
+  const turnIds =
+    links.sections.find((s) => s.cornerId === cornerId)?.turnIds ?? [];
   const data = useMemo(
     () => cornerReview(snapshot, sessions, settings, cornerId),
     [snapshot, sessions, settings, cornerId],
@@ -217,13 +225,20 @@ export function CornerCoach({
   );
   useEffect(() => {
     reviewSelection.set({
+      turnIds,
       cornerId,
       snapshotId: snapshot.id,
       referenceLapId: snapshot.referenceId,
       comparisonLapId: comparisonPass?.lapId,
     });
     return () => reviewSelection.set(null);
-  }, [cornerId, snapshot.id, snapshot.referenceId, comparisonPass?.lapId]);
+  }, [
+    cornerId,
+    snapshot.id,
+    snapshot.referenceId,
+    comparisonPass?.lapId,
+    turnIds.join("|"),
+  ]);
   const corner = data.corner,
     index = snapshot.corners.findIndex((c) => c.id === cornerId);
   const best = data.passes.find((p) => p.rank === 1),
@@ -298,7 +313,15 @@ export function CornerCoach({
             {String(index + 1).padStart(2, "0")}
           </span>
           <div>
-            <h3>{sectionName(corner)}</h3>
+            <h3>
+              {sectionName(corner)}
+              {turnIds.length > 0 && (
+                <small className="engineer-turn-labels">
+                  {" "}
+                  · {turnIds.join(" / ")}
+                </small>
+              )}
+            </h3>
             <p>
               {Math.round(corner.start).toLocaleString()}–
               {Math.round(corner.end).toLocaleString()} m ·{" "}

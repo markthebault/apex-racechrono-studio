@@ -73,6 +73,30 @@ try {
   await page.waitForTimeout(1000);
   let state = await json("apex_state");
   assert.equal(state.recordings.length, names.length);
+  const turnCatalogue = await json("apex_turns");
+  assert(turnCatalogue.turns.length > 0);
+  assert.deepEqual(
+    turnCatalogue.turns.map((t) => t.id),
+    turnCatalogue.turns.map((_, i) => `T${i + 1}`),
+  );
+  assert.equal(turnCatalogue.referenceId, state.turnReferenceId);
+  await page.getByRole("button", { name: "Focus T1", exact: true }).click();
+  assert.equal((await json("apex_state")).selectedTurn, "T1");
+  assert.equal(
+    await page.locator(".turn-marker").count(),
+    turnCatalogue.turns.length,
+  );
+  await json("apex_view", { turnId: turnCatalogue.turns[1].id });
+  await page.waitForTimeout(100);
+  assert.equal(
+    (await json("apex_state")).selectedTurn,
+    turnCatalogue.turns[1].id,
+  );
+  await mkdir("evidence", { recursive: true });
+  await writeFile(
+    "evidence/detected-turns.json",
+    JSON.stringify(turnCatalogue, null, 2),
+  );
   const ranked = state.recordings
     .flatMap((s) => s.laps.map((l) => ({ ...l, session: s.name })))
     .filter((l) => !l.issues.length)
@@ -147,6 +171,11 @@ try {
     .click();
   await page.getByLabel("Request for your agent", { exact: true }).waitFor();
   const engineer = await json("apex_engineer_context");
+  assert.deepEqual(
+    engineer.numberedTurns.turns.map((t) => t.id),
+    turnCatalogue.turns.map((t) => t.id),
+  );
+  assert(engineer.numberedTurns.sections.some((s) => s.turnIds.length));
   assert(engineer.request?.id);
   assert(engineer.reportSchema);
   const passes = await json("apex_corner_review", {

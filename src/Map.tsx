@@ -1,3 +1,4 @@
+import type { DetectedTurn } from "./turns";
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { Navigation, LocateFixed } from "lucide-react";
@@ -46,6 +47,9 @@ export function TrackMap({
   cursor,
   range,
   gates,
+  turns = [],
+  selectedTurn,
+  onTurn,
   brakeMarkers = [],
   onCursor,
   height,
@@ -58,6 +62,9 @@ export function TrackMap({
   cursor: number;
   range: [number, number];
   gates: number[];
+  turns?: DetectedTurn[];
+  selectedTurn?: string | null;
+  onTurn?: (id: string) => void;
   brakeMarkers?: BrakeMarker[];
   onCursor: (d: number) => void;
   height: number;
@@ -69,7 +76,8 @@ export function TrackMap({
     layers = useRef<L.LayerGroup | null>(null),
     markers = useRef<L.LayerGroup | null>(null),
     ghosts = useRef<L.LayerGroup | null>(null),
-    brakingMarkers = useRef<L.LayerGroup | null>(null);
+    brakingMarkers = useRef<L.LayerGroup | null>(null),
+    turnMarkers = useRef<L.LayerGroup | null>(null);
   const [viewMode, setViewMode] = useState<"range" | "free" | "follow">(
     "range",
   );
@@ -96,8 +104,8 @@ export function TrackMap({
     [showBrake, setShowBrake] = useState(false);
   useEffect(() => hoverBus.subscribe(setGhost), []);
   // The click handler reads the latest props through this ref.
-  const latest = useRef({ a, others, range, onCursor });
-  latest.current = { a, others, range, onCursor };
+  const latest = useRef({ a, others, range, onCursor, onTurn });
+  latest.current = { a, others, range, onCursor, onTurn };
   // The traces only need redrawing when the laps themselves change, not on every cursor move.
   const lapKey = others.map((o) => o.trace.id + o.color).join("|");
   useEffect(() => {
@@ -138,6 +146,7 @@ export function TrackMap({
     markers.current = L.layerGroup().addTo(m);
     ghosts.current = L.layerGroup().addTo(m);
     brakingMarkers.current = L.layerGroup().addTo(m);
+    turnMarkers.current = L.layerGroup().addTo(m);
     const observer = new ResizeObserver(() => m.invalidateSize());
     observer.observe(el.current!);
     return () => {
@@ -237,6 +246,28 @@ export function TrackMap({
         }).addTo(group!);
     }
   }, [a, lapKey, gates, colors[0], showSpeed, showBrake]);
+  useEffect(() => {
+    const group = turnMarkers.current;
+    group?.clearLayers();
+    if (!group || !a) return;
+    for (const turn of turns) {
+      const lat = interpolate(a.distance, a.lat, turn.position),
+        lon = interpolate(a.distance, a.lon, turn.position);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      L.marker([lat, lon], {
+        title: `${turn.label} · detected ${turn.direction} turn`,
+        icon: L.divIcon({
+          className: `turn-marker ${selectedTurn === turn.id ? "selected" : ""}`,
+          html: turn.label,
+          iconSize: [32, 26],
+          iconAnchor: [16, 36],
+        }),
+        zIndexOffset: 600,
+      })
+        .on("click", () => latest.current.onTurn?.(turn.id))
+        .addTo(group);
+    }
+  }, [a, turns, selectedTurn]);
   // The view follows the zoom window. While the window scrolls during playback this runs
   // every few milliseconds, so refitting is limited to a few times a second.
   const fitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);

@@ -36,3 +36,5 @@ See the [technical guide](TECHNICAL_GUIDE.md) for file formats, video sync, back
 ## Local agent connection
 
 Connect a local MCP agent to inspect the current workspace, query telemetry, navigate comparisons and request synchronized video stills. Follow the [three-step connection guide](docs/local-mcp.md#connect-in-three-steps). The header pill is orange while waiting and green when your agent is connected. The website remains static; the MCP helper runs locally.
+
+Analyze labels detected GPS bends **T1, T2, …** on the 2D/3D map. Select a turn to focus its telemetry; the same IDs and distance ranges are available to the MCP agent. Numbering is automatic and may differ from the circuit’s official turns.

@@ -119,3 +119,11 @@ Corner and session review requests share a plain-English writing instruction. An
 `apex_engineer_context` provides the report schema for the requested session or corner. Source eligibility, all-pass coverage, units, repeated-pattern support and coaching prose checks run locally when `apex_engineer_report` returns advice. Rejections return an actionable error to the agent and do not save the invalid report. Schema/reference validation does not prove the explanation true.
 
 Practice instructions may name known corners or laps and request small repetition counts such as “3 clean passes”. Invented numerical driving targets, arbitrary tolerances, unsupported driving prescriptions and raw SI speed prose remain rejected. Keep measured numbers in observations and compare practice against the measured baseline.
+
+## Numbered turns in Analyze
+
+Analyze detects GPS bends on its reference lap and labels them **T1, T2, …** in driving order. The 2D and 3D map and turn picker share these IDs; selecting a turn focuses its distance range and moves the cursor to its representative bend point. Sector gates remain separate.
+
+Turn IDs are local to the reference lap and can change when the reference or track scope changes. They are not official circuit numbers, surveyed corners or verified geometric apexes. Gentle, noisy or closely connected bends may be omitted or grouped. Detection does not change timing gates, theoretical-lap sectors or coaching eligibility.
+
+Race Engineer still uses its existing review windows. Those can split or combine turns, so their section names are retained. Its corner headings show the overlapping Analyze turn labels. MCP `apex_turns` returns the reference ID, distance bounds, direction and current selection; `apex_state` includes the same catalogue. `apex_view` accepts `turnId` to focus a turn (use a separate command when changing laps). `apex_engineer_context` maps its review sections onto the Analyze reference before returning their overlapping turn IDs; incompatible alignment returns no section mapping.
