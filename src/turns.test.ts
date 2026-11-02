@@ -86,15 +86,13 @@ test("separates two same-direction corners across a short straight that the nois
   expect(turns[0].position).toBeLessThan(150);
   expect(turns[1].position).toBeGreaterThanOrEqual(168);
 });
-test("retains a continuous changing-radius bend and ignores a one-sample curvature dip", () => {
+test("retains a single-lobed changing-radius bend and ignores a one-sample curvature dip", () => {
   const ref = fixture();
   const curvature = Float64Array.from(ref.distance, (d) =>
     d >= 50 && d <= 300
       ? d === 180
         ? 0
-        : d > 140 && d < 200
-          ? 0.006
-          : 0.012
+        : 0.006 + 0.006 * (1 - Math.abs(d - 175) / 125)
       : 0,
   );
   expect(detectTurns(ref, curvature)).toHaveLength(1);
@@ -167,4 +165,31 @@ test("maps the physical half-turn point back to reference progress", () => {
   const turns = detectTurns(ref, curvature);
   expect(turns).toHaveLength(1);
   expect(turns[0].position).toBeCloseTo(300, 0);
+});
+
+test("numbers both sustained lobes of a connected same-direction compound bend", () => {
+  const ref = fixture();
+  const shape = (d: number) =>
+    d >= 50 && d <= 300
+      ? 0.009 +
+        0.011 * Math.exp(-(((d - 110) / 22) ** 2)) +
+        0.011 * Math.exp(-(((d - 210) / 22) ** 2))
+      : 0;
+  const turns = detectTurns(ref, Float64Array.from(ref.distance, shape));
+  expect(turns).toHaveLength(2);
+  expect(turns.map((t) => t.direction)).toEqual(["left", "left"]);
+  expect(turns[0].position).toBeLessThan(160);
+  expect(turns[1].position).toBeGreaterThan(160);
+});
+test("does not create another turn from a weak shoulder on a dominant bend", () => {
+  const ref = fixture();
+  const shape = (d: number) =>
+    d >= 50 && d <= 300
+      ? 0.009 +
+        0.013 * Math.exp(-(((d - 120) / 35) ** 2)) +
+        0.003 * Math.exp(-(((d - 230) / 25) ** 2))
+      : 0;
+  expect(detectTurns(ref, Float64Array.from(ref.distance, shape))).toHaveLength(
+    1,
+  );
 });

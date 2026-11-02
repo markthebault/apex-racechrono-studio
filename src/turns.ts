@@ -99,7 +99,8 @@ export function detectTurns(
   }
   // Brief low-curvature gaps still join noisy samples inside one bend. Look
   // inside each joined region for a sustained valley supported by substantial
-  // turning on both sides, so a short straight does not hide a second corner.
+  // turning on both sides. A connected double-apex bend can relax without
+  // becoming straight; require more angular support before splitting that case.
   const physical = ref.rawDistance ?? ref.distance;
   const separated = regions.flatMap((region) => {
     const from = physical[region.first],
@@ -141,19 +142,35 @@ export function detectTurns(
         bestScore = 0;
       for (let i = lo + 8; i <= hi - 8; i++) {
         const peak = Math.min(left[i], right[i]);
-        if (peak < 0.001 || samples[i].k > peak * 0.25) continue;
+        if (peak < 0.001 || samples[i].k > peak * 0.6) continue;
+        const nearStraight = samples[i].k <= peak * 0.25;
+        const shoulder = peak * (nearStraight ? 0.5 : 0.75);
+        const minimumAngle = nearStraight ? 0.2 : 0.4;
         let a = i,
           b = i;
-        while (a > lo && samples[a - 1].k <= peak * 0.5) a--;
-        while (b < hi && samples[b + 1].k <= peak * 0.5) b++;
+        while (a > lo && samples[a - 1].k <= shoulder) a--;
+        while (b < hi && samples[b + 1].k <= shoulder) b++;
         if (
           samples[b].d - samples[a].d < 12 ||
           samples[a].d - samples[lo].d < 15 ||
           samples[hi].d - samples[b].d < 15 ||
-          area[a] - area[lo] < 0.2 ||
-          area[hi] - area[b] < 0.2
+          area[a] - area[lo] < minimumAngle ||
+          area[hi] - area[b] < minimumAngle
         )
           continue;
+        if (!nearStraight) {
+          // Both tightening points must last: a narrow GPS spike is not a
+          // second apex. Short straight-separated bends retain the old gates.
+          const sustainedPeak = (from: number, to: number) => {
+            let start = from;
+            for (let j = from; j <= to; j++) {
+              if (samples[j].k < shoulder) start = j + 1;
+              else if (samples[j].d - samples[start].d >= 20) return true;
+            }
+            return false;
+          };
+          if (!sustainedPeak(lo, a) || !sustainedPeak(b, hi)) continue;
+        }
         const score = 1 - samples[i].k / peak;
         if (score > bestScore) {
           best = i;
