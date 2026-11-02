@@ -131,3 +131,40 @@ test("splits only valleys with enough turning on both sides, regardless of GPS s
   );
   expect(detectTurns(low, short)).toHaveLength(1);
 });
+
+test("puts a constant-radius hairpin label in the body of the bend rather than on its entry", () => {
+  const ref = fixture();
+  const curvature = Float64Array.from(ref.distance, (d) =>
+    d >= 100 && d <= 300 ? -0.015 : 0,
+  );
+  const turns = detectTurns(ref, curvature);
+  expect(turns).toHaveLength(1);
+  expect(turns[0].position).toBeCloseTo(200, 0);
+});
+test("a short sharp entry sample does not steal the label from the sustained bend", () => {
+  const ref = fixture();
+  const curvature = Float64Array.from(ref.distance, (d) =>
+    d >= 100 && d <= 300
+      ? d >= 106 && d <= 110
+        ? 0.06
+        : d >= 170 && d <= 280
+          ? 0.02
+          : 0.012
+      : 0,
+  );
+  const turns = detectTurns(ref, curvature);
+  expect(turns).toHaveLength(1);
+  expect(turns[0].position).toBeGreaterThan(180);
+  expect(turns[0].position).toBeLessThan(250);
+});
+test("maps the physical half-turn point back to reference progress", () => {
+  const ref = fixture();
+  ref.distance = Float64Array.from(ref.distance, (d) => d * 1.5);
+  ref.length *= 1.5;
+  const curvature = Float64Array.from(ref.distance, (d) =>
+    d >= 150 && d <= 450 ? -0.015 : 0,
+  );
+  const turns = detectTurns(ref, curvature);
+  expect(turns).toHaveLength(1);
+  expect(turns[0].position).toBeCloseTo(300, 0);
+});

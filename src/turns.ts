@@ -10,6 +10,41 @@ export type DetectedTurn = {
   position: number;
   direction: "left" | "right";
 };
+// Place a label halfway through the accumulated turn angle. A brief entry
+// curvature spike should not move the label away from the body of the corner.
+function bendPosition(
+  ref: Trace,
+  curvature: Float64Array,
+  start: number,
+  end: number,
+  sign: number,
+) {
+  const physical = ref.rawDistance ?? ref.distance;
+  const from = interpolate(ref.distance, physical, start),
+    to = interpolate(ref.distance, physical, end);
+  const count = Math.ceil((to - from) / 2);
+  if (!Number.isFinite(count) || count < 1) return (start + end) / 2;
+  const distances: number[] = [],
+    angle: number[] = [];
+  let previousK = 0;
+  for (let i = 0; i <= count; i++) {
+    const d = Math.min(to, from + i * 2);
+    const k = Math.max(0, sign * interpolate(physical, curvature, d));
+    if (!Number.isFinite(k)) return (start + end) / 2;
+    distances.push(d);
+    angle.push(
+      i ? angle[i - 1] + ((previousK + k) * (d - distances[i - 1])) / 2 : 0,
+    );
+    previousK = k;
+  }
+  const total = angle.at(-1)!;
+  if (!(total > 0)) return (start + end) / 2;
+  return interpolate(
+    physical,
+    ref.distance,
+    interpolate(angle, distances, total / 2),
+  );
+}
 // A geometric bend catalogue, separate from the engineer's padded 400 m review windows.
 // Numbers follow reference progress from start/finish and are local to that reference.
 export function detectTurns(
@@ -21,9 +56,7 @@ export function detectTurns(
     last: number;
     start: number;
     end: number;
-    position: number;
     sign: number;
-    peak: number;
     angle: number;
   }[] = [];
   let active: (typeof regions)[number] | undefined;
@@ -55,9 +88,7 @@ export function detectTurns(
         last: i,
         start: d,
         end: d,
-        position: d,
         sign,
-        peak: Math.abs(k),
         angle: 0,
       };
       regions.push(active);
@@ -65,10 +96,6 @@ export function detectTurns(
     active.last = i;
     active.end = d;
     active.angle += Math.abs(k) * ds;
-    if (Math.abs(k) > active.peak) {
-      active.position = d;
-      active.peak = Math.abs(k);
-    }
   }
   // Brief low-curvature gaps still join noisy samples inside one bend. Look
   // inside each joined region for a sustained valley supported by substantial
@@ -138,16 +165,11 @@ export function detectTurns(
     const parts = split(0, samples.length - 1);
     if (parts.length === 1) return [region];
     return parts.map(({ lo, hi }) => {
-      let peak = lo;
-      for (let i = lo + 1; i <= hi; i++)
-        if (samples[i].k > samples[peak].k) peak = i;
       return {
         ...region,
         start: interpolate(physical, ref.distance, samples[lo].d),
         end: interpolate(physical, ref.distance, samples[hi].d),
-        position: interpolate(physical, ref.distance, samples[peak].d),
         angle: area[hi] - area[lo],
-        peak: samples[peak].k,
       };
     });
   });
@@ -160,7 +182,7 @@ export function detectTurns(
       label: `T${i + 1}`,
       start: r.start,
       end: r.end,
-      position: r.position,
+      position: bendPosition(ref, curvature, r.start, r.end, r.sign),
       direction: r.sign > 0 ? "left" : "right",
     }));
 }
