@@ -11,7 +11,8 @@
     "deploy": "sh scripts/deploy.sh",
     "deploy:pages": "node scripts/deploy-pages.mjs",
     "mcp": "node mcp/server.mjs",
-    "test:mcp": "node scripts/test-mcp.mjs"
+    "test:mcp": "node scripts/test-mcp.mjs",
+    "test:mcp-install": "node scripts/test-mcp-install.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -47,5 +48,14 @@
     "type": "git",
     "url": "git+https://github.com/markthebault/apex-racechrono-studio.git"
   },
-  "homepage": "https://github.com/markthebault/apex-racechrono-studio#readme"
+  "homepage": "https://github.com/markthebault/apex-racechrono-studio#readme",
+  "bin": {
+    "apex-mcp": "mcp/server.mjs"
+  },
+  "files": [
+    "mcp/server.mjs",
+    "README.md",
+    "LICENSE",
+    "docs/local-mcp.md"
+  ]
 }

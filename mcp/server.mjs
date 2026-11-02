@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";

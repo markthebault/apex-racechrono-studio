@@ -1,3 +1,4 @@
+import { engineerTurnLinks } from "./turns";
 import type { Session } from "../model";
 import {
   AnalysisService,
@@ -26,6 +27,7 @@ type Review = {
   report?: Report;
   active: boolean;
   accepting: boolean;
+  sessions: Session[];
 };
 let current: Review | undefined;
 export function installEngineer(
@@ -38,6 +40,7 @@ export function installEngineer(
   service.grant();
   const review: Review = {
     snapshot,
+    sessions,
     service,
     save,
     active: true,
@@ -75,6 +78,7 @@ export function engineerContext() {
   const r = current;
   if (!r?.active) throw Error("Open Race Engineer and wait for its analysis.");
   return bounded({
+    numberedTurns: engineerTurnLinks(r.snapshot, r.sessions),
     snapshotId: r.snapshot.id,
     referenceId: r.snapshot.referenceId,
     lapIds: r.snapshot.laps.map((l) => l.id),

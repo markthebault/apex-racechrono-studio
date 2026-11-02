@@ -1,3 +1,5 @@
+import type { DetectedTurn } from "../turns";
+import { turnContext } from "./turns";
 import { setAgentConnection } from "./connection";
 import { engineerContext, queryEngineer, submitEngineer } from "./engineer";
 import { Bot, Check, Plug, X } from "lucide-react";
@@ -23,6 +25,9 @@ export type AgentHost = {
     cursor: number;
     channels: unknown;
     playing: boolean;
+    detectedTurns?: DetectedTurn[];
+    selectedTurn?: string | null;
+    turnReferenceId?: string;
   };
   bindings: Binding[];
   files: Record<string, string>;
@@ -126,7 +131,9 @@ export function AgentPanel({ host }: { host: AgentHost }) {
           },
         });
         let result: unknown;
-        if (name === "apex_engineer_context") result = engineerContext();
+        if (name === "apex_turns")
+          result = { ...turnContext(), selectedTurn: h.view.selectedTurn };
+        else if (name === "apex_engineer_context") result = engineerContext();
         else if (name === "apex_engineer_report")
           result = await submitEngineer(args.requestId, args.report);
         else if (name === "apex_state") result = state();
@@ -160,6 +167,7 @@ export function AgentPanel({ host }: { host: AgentHost }) {
               (k) =>
                 ![
                   "revision",
+                  "turnId",
                   "tab",
                   "lapId",
                   "comparisonLapId",
@@ -169,6 +177,19 @@ export function AgentPanel({ host }: { host: AgentHost }) {
             )
           )
             throw Error("invalid_arguments");
+          if (args.turnId !== undefined) {
+            if (
+              typeof args.turnId !== "string" ||
+              !h.view.detectedTurns?.some((t) => t.id === args.turnId)
+            )
+              throw Error("unknown_turn");
+            if (
+              ["lapId", "comparisonLapId", "range", "cursor", "tab"].some(
+                (k) => args[k] !== undefined,
+              )
+            )
+              throw Error("turn_navigation_must_be_separate");
+          }
           if (
             args.tab !== undefined &&
             ![
@@ -388,17 +409,22 @@ export function AgentPanel({ host }: { host: AgentHost }) {
               <li>
                 <strong>Add Apex to your agent</strong>
                 <p>
-                  Install Node.js 22+, run <code>npm ci</code> in your Apex
-                  checkout, then add this to your agent’s MCP settings. Replace
-                  the example path.
+                  Install Node.js 22+ and add Apex in your agent’s MCP settings.
+                  No checkout is needed.
                 </p>
                 <pre>
                   {JSON.stringify(
                     {
                       mcpServers: {
                         apex: {
-                          command: "node",
-                          args: ["/path/to/apex/mcp/server.mjs"],
+                          command: "npm",
+                          args: [
+                            "exec",
+                            "--yes",
+                            "--package=github:markthebault/apex-racechrono-studio",
+                            "--",
+                            "apex-mcp",
+                          ],
                         },
                       },
                     },

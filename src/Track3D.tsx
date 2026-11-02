@@ -175,6 +175,9 @@ export default function Track3D({
   colors = ["#ff8855", "#8ed4b2"],
   cursor,
   gates,
+  turns = [],
+  selectedTurn,
+  onTurn,
   brakeMarkers = [],
   onCursor,
   height,
@@ -189,8 +192,8 @@ export default function Track3D({
   const [ghost, setGhost] = useState<number | null>(null);
   useEffect(() => hoverBus.subscribe(setGhost), []);
   const frame = useMemo(() => (a ? trackFrame(a) : undefined), [a]);
-  const latest = useRef({ cursor, others, ghost, onCursor });
-  latest.current = { cursor, others, ghost, onCursor };
+  const latest = useRef({ cursor, others, ghost, onCursor, onTurn });
+  latest.current = { cursor, others, ghost, onCursor, onTurn };
   const reset = useRef<() => void>(() => {});
   const lapKey = others.map((o) => o.trace.id + o.color + o.tag).join("|");
   useEffect(() => {
@@ -322,6 +325,20 @@ export default function Track3D({
       return { ...lap, current, hover };
     });
     const gateLabels: THREE.Sprite[] = [];
+    const turnLabels: { sprite: THREE.Sprite; id: string }[] = [];
+    for (const turn of turns) {
+      const p = trackPosition(a, turn.position, frame, exaggeration);
+      if (!p) continue;
+      const sprite = label(
+        turn.label,
+        selectedTurn === turn.id ? "#ff8855" : "#8ed4b2",
+        extent / 100,
+      );
+      sprite.position.set(p.x, p.y + width * 6, p.z);
+      scene.add(sprite);
+      gateLabels.push(sprite);
+      turnLabels.push({ sprite, id: turn.id });
+    }
     for (const point of brakeMarkers) {
       const p = trackPosition(point.trace, point.distance, frame, exaggeration);
       if (!p) continue;
@@ -369,6 +386,16 @@ export default function Track3D({
         ),
         camera,
       );
+      const turnHit = raycaster.intersectObjects(
+        turnLabels.map((t) => t.sprite),
+      )[0];
+      if (turnHit) {
+        const turn = turnLabels.find((t) => t.sprite === turnHit.object);
+        if (turn) {
+          latest.current.onTurn?.(turn.id);
+          return;
+        }
+      }
       const hit = raycaster.intersectObjects(roads)[0];
       if (!hit) return;
       let best = Infinity,
@@ -492,6 +519,8 @@ export default function Track3D({
     showBrake,
     gates,
     brakeMarkers,
+    turns,
+    selectedTurn,
   ]);
   const recorded = a ? brakeSignal(a).recorded : false;
   const altitude = a?.channels.altitude

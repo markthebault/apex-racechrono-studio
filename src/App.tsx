@@ -1,3 +1,5 @@
+import { detectTurns, turnLimitations } from "./turns";
+import { setTurnCatalogue } from "./agent/turns";
 import { AgentPanel } from "./agent/AgentPanel";
 import {
   Fragment,
@@ -274,6 +276,13 @@ export default function App() {
     };
   }, [sessions, reference]);
   const ref = traces.find((t) => t.id === reference);
+  const detectedTurns = useMemo(() => (ref ? detectTurns(ref) : []), [ref]);
+  const [selectedTurn, setSelectedTurn] = useState<string | null>(null);
+  useEffect(() => {
+    setTurnCatalogue(ref, detectedTurns);
+    setSelectedTurn(null);
+    return () => setTurnCatalogue(undefined, []);
+  }, [ref, detectedTurns]);
   const layout = settings.layouts.find((l) => l.referenceId === reference);
   const gates = useMemo(
     () =>
@@ -575,6 +584,7 @@ export default function App() {
   const at = a ? (exact ?? interpolate(a.distance, a.times, cursor)) : 0;
   // Moving by position forgets the exact time; moving by time keeps it.
   const moveCursor = (d: number) => {
+    setSelectedTurn(null);
     setExact(null);
     setCursor(d);
   };
@@ -1346,6 +1356,9 @@ export default function App() {
                   cursor,
                   channels: settings.charts,
                   playing,
+                  turnReferenceId: ref?.id,
+                  detectedTurns,
+                  selectedTurn,
                 },
                 importSession: async (list) => {
                   await importFiles(list, true);
@@ -1353,6 +1366,21 @@ export default function App() {
                 },
                 navigate: (args) => {
                   setPlaying(false);
+                  if (args.turnId) {
+                    const t = detectedTurns.find((t) => t.id === args.turnId);
+                    if (t && a) {
+                      setTab("Analyze");
+                      setExact(null);
+                      setRange([
+                        Math.max(0, t.start - 30),
+                        Math.min(a.length, t.end + 50),
+                      ]);
+                      setCursor(t.position);
+                      setSelectedTurn(t.id);
+                    }
+                    return;
+                  }
+                  setSelectedTurn(null);
                   if (args.lapId !== undefined)
                     patch({
                       a: String(args.lapId),
@@ -1790,6 +1818,36 @@ export default function App() {
                   {b && b.issues.length > 0 && (
                     <div className="notice">Lap B: {b.issues.join(" · ")}</div>
                   )}
+                  <div className="analyze-turns" aria-label="Detected turns">
+                    <span title={turnLimitations}>
+                      {detectedTurns.length} detected turns
+                    </span>
+                    <div role="group" aria-label="Choose turn">
+                      {detectedTurns.map((t) => (
+                        <button
+                          key={t.id}
+                          aria-label={`Focus ${t.label}`}
+                          aria-pressed={selectedTurn === t.id}
+                          title={`${t.direction} · ${Math.round(t.start)}–${Math.round(t.end)} m`}
+                          onClick={() => {
+                            setPlaying(false);
+                            setExact(null);
+                            setRange([
+                              Math.max(0, t.start - 30),
+                              Math.min(a.length, t.end + 50),
+                            ]);
+                            setCursor(t.position);
+                            setSelectedTurn(t.id);
+                          }}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <small>
+                      Auto-detected · not official circuit numbering
+                    </small>
+                  </div>
                   <TrackView
                     a={a}
                     others={comparisons}
@@ -1797,6 +1855,21 @@ export default function App() {
                     cursor={cursor}
                     range={range}
                     gates={gates}
+                    turns={detectedTurns}
+                    selectedTurn={selectedTurn}
+                    onTurn={(id) => {
+                      const t = detectedTurns.find((t) => t.id === id);
+                      if (t) {
+                        setPlaying(false);
+                        setExact(null);
+                        setRange([
+                          Math.max(0, t.start - 30),
+                          Math.min(a.length, t.end + 50),
+                        ]);
+                        setCursor(t.position);
+                        setSelectedTurn(t.id);
+                      }
+                    }}
                     brakeMarkers={brakeMarkers}
                     onCursor={moveCursor}
                     height={settings.mapHeight}

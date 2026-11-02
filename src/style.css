@@ -3351,3 +3351,50 @@ dialog.line-editor[open] {
     gap: 10px;
   }
 }
+.analyze-turns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.analyze-turns > span {
+  font-size: 12px;
+  font-weight: 600;
+}
+.analyze-turns > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.analyze-turns button {
+  padding: 5px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+}
+.analyze-turns button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--lab-ink);
+  border-color: var(--accent);
+}
+.analyze-turns small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.turn-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid #8ed4b2;
+  background: #142b28;
+  color: #c0f3df;
+  font-weight: 750;
+  font-size: 12px;
+  box-shadow: 0 2px 7px #0008;
+}
+.turn-marker.selected {
+  color: #1b262d;
+  background: #ff8855;
+  border-color: #ff8855;
+}

@@ -1,5 +1,6 @@
 // Corner review is mounted independently of the analyzer's lap A/B selection.
 let selection: {
+  turnIds?: string[];
   cornerId: string;
   snapshotId: string;
   referenceLapId: string;
