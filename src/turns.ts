@@ -10,6 +10,19 @@ export type DetectedTurn = {
   position: number;
   direction: "left" | "right";
 };
+// Half the previous magnification: show twice the padded corner distance.
+// Shared by map markers, the turn picker and MCP navigation.
+export function turnFocusRange(
+  turn: Pick<DetectedTurn, "start" | "end">,
+  lapLength: number,
+): [number, number] {
+  const center = (turn.start + turn.end + 20) / 2;
+  const halfWidth = turn.end - turn.start + 80;
+  return [
+    Math.max(0, center - halfWidth),
+    Math.min(lapLength, center + halfWidth),
+  ];
+}
 // Place a label halfway through the accumulated turn angle. A brief entry
 // curvature spike should not move the label away from the body of the corner.
 function bendPosition(
