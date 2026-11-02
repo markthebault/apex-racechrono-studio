@@ -53,6 +53,26 @@ try {
   const connection = await json("apex_connection");
   await page.goto(connection.pairingUrl);
   await page
+    .getByText("How to connect · 3 simple steps", { exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Copy command", exact: true })
+    .waitFor();
+  assert.match(
+    await page.locator(".agent-install-command").innerText(),
+    /npm exec --yes --package=github:markthebault\/apex-racechrono-studio -- apex-mcp/,
+  );
+  assert.equal(
+    await page
+      .getByText("/path/to/apex/mcp/server.mjs", { exact: true })
+      .count(),
+    0,
+  );
+  await page
+    .getByText("How to connect · 3 simple steps", { exact: true })
+    .click();
+
+  await page
     .getByRole("button", { name: "Connect agent", exact: true })
     .click();
   await page
