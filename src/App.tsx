@@ -1,3 +1,4 @@
+import { AgentPanel } from "./agent/AgentPanel";
 import {
   Fragment,
   Suspense,
@@ -177,6 +178,11 @@ export default function App() {
   const [engineerFocus, setEngineerFocus] = useState<{
     lapId: string;
     time: [number, number];
+  } | null>(null);
+  const [agentNavigation, setAgentNavigation] = useState<{
+    lapId: string;
+    range?: [number, number];
+    cursor?: number;
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -532,6 +538,19 @@ export default function App() {
       setCursor(0);
     }
   }, [a?.id, a?.length]);
+  useEffect(() => {
+    if (!agentNavigation || !a || a.id !== agentNavigation.lapId) return;
+    if (agentNavigation.range)
+      setRange([
+        Math.min(a.length, agentNavigation.range[0]),
+        Math.min(a.length, agentNavigation.range[1]),
+      ]);
+    if (agentNavigation.cursor !== undefined) {
+      setExact(null);
+      setCursor(Math.min(a.length, agentNavigation.cursor));
+    }
+    setAgentNavigation(null);
+  }, [agentNavigation, a?.id, a?.length]);
   // Apply evidence focus after the ordinary lap-change reset above.
   useEffect(() => {
     if (!engineerFocus || a?.id !== engineerFocus.lapId) return;
@@ -765,8 +784,11 @@ export default function App() {
   }
   // Sessions, projects and sync files, from the file picker or dropped anywhere on the
   // window. Each file is handled on its own, so one bad file does not stop the rest.
-  async function importFiles(list: File[]) {
-    if (abort.current) return;
+  async function importFiles(list: File[], strict = false) {
+    if (abort.current) {
+      if (strict) throw Error("import_busy");
+      return;
+    }
     setError("");
     abort.current = new AbortController();
     const added: Session[] = [],
@@ -983,6 +1005,7 @@ export default function App() {
         setLineFor(needsLine.id);
       }
     }
+    if (strict && failures.length) throw Error(failures.join("\n"));
     return projectImported;
   }
   const driveRevision = useMemo(
@@ -1309,6 +1332,46 @@ export default function App() {
             <span>{tab}</span>
           </div>
           <div className="header-actions">
+            <AgentPanel
+              host={{
+                sessions,
+                settings,
+                bindings: sync.bindings,
+                files,
+                view: {
+                  tab,
+                  lapId: a?.id,
+                  comparisonLapId: b?.id,
+                  range,
+                  cursor,
+                  channels: settings.charts,
+                  playing,
+                },
+                importSession: async (list) => {
+                  await importFiles(list, true);
+                  return true;
+                },
+                navigate: (args) => {
+                  setPlaying(false);
+                  if (args.lapId !== undefined)
+                    patch({
+                      a: String(args.lapId),
+                      b: String(args.comparisonLapId ?? ""),
+                      extras: [],
+                    });
+                  else if (args.comparisonLapId !== undefined)
+                    patch({ b: String(args.comparisonLapId) });
+                  if (args.tab) setTab(String(args.tab));
+                  if (args.range || args.cursor !== undefined)
+                    setAgentNavigation({
+                      lapId: String(args.lapId ?? a?.id ?? ""),
+                      range: args.range as [number, number] | undefined,
+                      cursor: args.cursor as number | undefined,
+                    });
+                },
+              }}
+            />
+
             <span className="saved">
               <span className="live-dot" />{" "}
               {saving ? "Saving…" : "Saved locally"}
