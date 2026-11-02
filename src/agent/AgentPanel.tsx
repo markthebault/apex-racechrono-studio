@@ -1,3 +1,5 @@
+import { Bot, Check, Plug, X } from "lucide-react";
+import "./agent.css";
 import { reviewSelection } from "./selection";
 import { useEffect, useRef, useState } from "react";
 import type { Binding, Session, Settings } from "../model";
@@ -278,71 +280,192 @@ export function AgentPanel({ host }: { host: AgentHost }) {
       stop();
     };
   }, [connected, port, token]);
+  const isConnected = connected && status === "Connected";
+  const connectionLabel = isConnected
+    ? "Agent connected"
+    : connected
+      ? "MCP enabled · Waiting"
+      : "Connect AI agent";
   return (
     <div className="agent-connection">
-      <button onClick={() => setOpen(!open)}>Local agent · {status}</button>
+      <button
+        className={`agent-pill ${isConnected ? "is-connected" : connected ? "is-waiting" : "is-off"}`}
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls="agent-connection-panel"
+        title={
+          isConnected
+            ? "Your AI agent is connected to this workspace"
+            : connected
+              ? status
+              : "Connect a local AI agent via MCP"
+        }
+      >
+        <span className="agent-status-dot" aria-hidden="true" />
+        <Bot size={15} aria-hidden="true" />
+        <span aria-live="polite">{connectionLabel}</span>
+      </button>
       {open && (
         <section
-          aria-label="Local agent connection"
-          style={{
-            position: "fixed",
-            right: 16,
-            top: 70,
-            zIndex: 1000,
-            maxWidth: 430,
-            padding: 20,
-            background: "var(--panel, #18202c)",
-            border: "1px solid #667",
-            borderRadius: 12,
+          id="agent-connection-panel"
+          className="agent-panel"
+          role="dialog"
+          aria-labelledby="agent-panel-title"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setOpen(false);
           }}
         >
-          <h3>Local MCP agent</h3>
-          <p>
-            Connecting shares recording names, selected views and queried
-            telemetry with your agent and its model provider. Video frames
-            require separate permission. Disconnect stops access.
+          <div className="agent-panel-heading">
+            <span className="agent-icon">
+              <Bot size={22} />
+            </span>
+            <div>
+              <h3 id="agent-panel-title">Your AI, in the workspace</h3>
+              <p>Connect your local agent with MCP.</p>
+            </div>
+            <button
+              className="agent-close"
+              aria-label="Close"
+              onClick={() => setOpen(false)}
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div
+            className={`agent-connection-state ${isConnected ? "is-connected" : connected ? "is-waiting" : "is-off"}`}
+            role="status"
+          >
+            {isConnected ? <Check size={17} /> : <Plug size={17} />}
+            <div>
+              <strong>
+                {isConnected
+                  ? "Agent connected"
+                  : connected
+                    ? "MCP is enabled"
+                    : "Ready when you are"}
+              </strong>
+              <p>
+                {isConnected
+                  ? "Your agent can read this workspace and query your data."
+                  : connected
+                    ? "Waiting for your local agent. Keep its app running."
+                    : "Follow the three steps below to get connected."}
+              </p>
+              {connected && !isConnected && <small>{status}</small>}
+            </div>
+          </div>
+          <details className="agent-setup" open={!token || undefined}>
+            <summary>How to connect · 3 simple steps</summary>
+            <ol>
+              <li>
+                <strong>Add Apex to your agent</strong>
+                <p>
+                  Install Node.js 22+, run <code>npm ci</code> in your Apex
+                  checkout, then add this to your agent’s MCP settings. Replace
+                  the example path.
+                </p>
+                <pre>
+                  {JSON.stringify(
+                    {
+                      mcpServers: {
+                        apex: {
+                          command: "node",
+                          args: ["/path/to/apex/mcp/server.mjs"],
+                        },
+                      },
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </li>
+              <li>
+                <strong>Ask your agent for a pairing link</strong>
+                <p>
+                  Say: “Connect to Apex using apex_connection.” Open the link it
+                  gives you in this browser.
+                </p>
+              </li>
+              <li>
+                <strong>Enable the connection</strong>
+                <p>
+                  Press <b>Connect agent</b> below and allow device access if
+                  your browser asks. The pill turns green when connected.
+                </p>
+              </li>
+            </ol>
+          </details>
+          <div className="agent-pairing-fields">
+            <label>
+              Port
+              <input
+                aria-label="Agent port"
+                inputMode="numeric"
+                value={port}
+                disabled={connected}
+                onChange={(e) => setPort(e.target.value)}
+              />
+            </label>
+            <label>
+              Pairing token
+              <input
+                aria-label="Agent pairing token"
+                type="password"
+                placeholder="Filled by your pairing link"
+                value={token}
+                disabled={connected}
+                onChange={(e) => setToken(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="agent-permissions">
+            <span className="agent-section-label">Let your agent do more</span>
+            <label>
+              <input
+                type="checkbox"
+                checked={control}
+                onChange={(e) => setControl(e.target.checked)}
+              />
+              <span>
+                Allow navigation and session import
+                <small>Open comparisons and move around the data.</small>
+              </span>
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={video}
+                onChange={(e) => setVideo(e.target.checked)}
+              />
+              <span>
+                Share linked video frames
+                <small>View stills from your synchronized onboard video.</small>
+              </span>
+            </label>
+          </div>
+          <p className="agent-privacy">
+            Connecting shares workspace details and requested data with your
+            agent and its model provider. Disconnect at any time to stop access.
           </p>
-          <label>
-            Port{" "}
-            <input
-              aria-label="Agent port"
-              value={port}
-              disabled={connected}
-              onChange={(e) => setPort(e.target.value)}
-            />
-          </label>
-          <label>
-            Pairing token{" "}
-            <input
-              aria-label="Agent pairing token"
-              type="password"
-              value={token}
-              disabled={connected}
-              onChange={(e) => setToken(e.target.value)}
-            />
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={control}
-              onChange={(e) => setControl(e.target.checked)}
-            />{" "}
-            Allow navigation and session import
-          </label>
-          <br />
-          <label>
-            <input
-              type="checkbox"
-              checked={video}
-              onChange={(e) => setVideo(e.target.checked)}
-            />{" "}
-            Share linked video frames
-          </label>
-          <br />
-          <button onClick={() => setConnected(!connected)}>
-            {connected ? "Disconnect agent" : "Connect agent"}
-          </button>
-          <button onClick={() => setOpen(false)}>Close</button>
+          <div className="agent-panel-footer">
+            <span>
+              <i className="agent-legend-dot is-waiting" /> Enabled{" "}
+              <i className="agent-legend-dot is-connected" /> Connected
+            </span>
+            <button
+              className={connected ? "" : "primary"}
+              disabled={
+                !connected &&
+                (!token ||
+                  !Number.isInteger(Number(port)) ||
+                  Number(port) < 1 ||
+                  Number(port) > 65535)
+              }
+              onClick={() => setConnected(!connected)}
+            >
+              {connected ? "Disconnect agent" : "Connect agent"}
+            </button>
+          </div>
         </section>
       )}
     </div>

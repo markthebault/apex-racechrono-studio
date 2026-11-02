@@ -51,8 +51,9 @@ try {
     .getByRole("button", { name: "Connect agent", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Local agent · Connected", exact: true })
+    .getByRole("button", { name: "Agent connected", exact: true })
     .waitFor();
+  assert(await page.locator(".agent-pill.is-connected").count());
   const definitions = await client.listTools();
   assert(definitions.tools.some((t) => t.name === "apex_video_frames"));
   let denied = await client.callTool({
@@ -179,7 +180,7 @@ try {
   assert(videoTest.colors[0][0] > 200);
   assert(videoTest.colors[1][2] > 200);
   await page
-    .getByRole("button", { name: "Local agent · Connected", exact: true })
+    .getByRole("button", { name: "Agent connected", exact: true })
     .click();
   await page.getByLabel("Share linked video frames").check();
   const missingVideo = await client.callTool({
@@ -193,6 +194,17 @@ try {
     .click();
   await page.waitForTimeout(100);
   assert.equal((await json("apex_connection")).connected, false);
+  assert(await page.locator(".agent-pill.is-off").count());
+  await page
+    .getByRole("button", { name: "Connect agent", exact: true })
+    .click();
+  await page.locator(".agent-pill.is-connected").waitFor();
+  await client.close();
+  await page.locator(".agent-pill.is-waiting").waitFor();
+  assert.match(
+    await page.locator(".agent-pill").innerText(),
+    /MCP enabled · Waiting/,
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({

@@ -125,11 +125,15 @@ export function startBridge(
         });
       };
       ws.onclose = () => {
+        if (stopped) return;
         status("Disconnected");
         if (!stopped) timer = setTimeout(connect, 3000);
       };
-      ws.onerror = () => status("Connection failed");
+      ws.onerror = () => {
+        if (!stopped) status("Connection failed");
+      };
     } catch {
+      if (stopped) return;
       status("Helper unavailable or browser permission denied");
       if (!stopped) timer = setTimeout(connect, 3000);
     }

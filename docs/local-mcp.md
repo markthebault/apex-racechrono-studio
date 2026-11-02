@@ -2,12 +2,60 @@
 
 Apex remains a static app. A Node.js helper runs alongside your agent and connects to one explicitly paired browser tab over loopback WebSocket. No hosted inference or relay is involved. Use Node.js 22+.
 
-From a checkout, run `npm ci`, then configure your MCP client to start `node` with `mcp/server.mjs` as its argument and the checkout as its working directory. Alternatively, supply the absolute path to that script. `npm run mcp` also starts it. Standard output is exclusively MCP; diagnostics use standard error.
+## Connect in three steps
 
-1. Ask the agent to call `apex_connection` and open the returned pairing URL in your browser.
-2. Apex opens **Local MCP agent**. Press **Connect agent** to share workspace metadata and requested analysis. Enable navigation/import or video frames separately as needed.
-3. The agent refreshes its tool list after pairing, reads `apex_state` and `apex_guide`, and queries the selected data.
-4. **Disconnect agent** revokes access. Pairing tokens are generated per helper process and are not persisted by Apex. Restarting the helper requires a new pairing link.
+### 1. Add Apex to your agent
+
+Install [Node.js 22 or newer](https://nodejs.org/). In your Apex checkout, run this once:
+
+```sh
+npm ci
+```
+
+Open your AI app’s **MCP settings** and add the following configuration. Replace `/path/to/apex` with the location of your checkout. Your agent starts the helper automatically.
+
+```json
+{
+  "mcpServers": {
+    "apex": {
+      "command": "node",
+      "args": ["/path/to/apex/mcp/server.mjs"]
+    }
+  }
+}
+```
+
+If your app has a form instead of a JSON editor, enter **Apex** as the name, **node** as the command, and the full path to **mcp/server.mjs** as the argument. Restart the agent or refresh its MCP tools after adding it.
+
+### 2. Open your pairing link
+
+Tell your agent:
+
+> Connect to Apex using apex_connection and give me the pairing link.
+
+Open that link in Chrome or Edge **on the same computer as the agent**. Apex fills in the connection details for you.
+
+### 3. Connect and look for green
+
+Press **Connect agent** in Apex. If your browser asks to access apps on this device, choose **Allow**.
+
+- **Orange — MCP enabled · Waiting:** Apex is trying to reach your agent. Keep the agent app running.
+- **Green — Agent connected:** the connection succeeded. Your agent can now inspect the workspace and query your data.
+- **Gray — Connect AI agent:** MCP is off.
+
+Navigation/import and video frames are optional checkboxes. Enable only the access you want. To stop sharing, click the status pill, then **Disconnect agent**.
+
+Try asking:
+
+> Explain the difference between the two laps I’m looking at. Start with my current selection.
+
+With video linked and frame sharing enabled:
+
+> Show frames before, during and after this corner. Describe what you can see and what remains uncertain.
+
+**Still orange?** Check that the agent’s Apex MCP server is running and your browser allows device access. Ask the agent for a fresh pairing link if the helper restarted. Each helper process gets a new token; an older link will no longer work.
+
+## Local development and troubleshooting
 
 For local development, run `npm run dev -- --port 5174`. Set `APEX_MCP_APP` to that development URL in the MCP process environment. If that port is occupied, use the actual URL Vite reports. `APEX_MCP_PORT` changes the helper's default port (7318); `APEX_MCP_ORIGINS` adds an explicit comma-separated origin allowlist for other deployments. These settings belong in untracked local configuration. The helper always binds to 127.0.0.1. The browser and helper must be on the same computer. Remote agents require a separately designed secure connection.
 

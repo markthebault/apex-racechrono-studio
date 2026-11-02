@@ -35,4 +35,4 @@ See the [technical guide](TECHNICAL_GUIDE.md) for file formats, video sync, back
 
 ## Local agent connection
 
-Connect a local MCP agent to inspect the current workspace, query telemetry, navigate comparisons and request synchronized video stills. See [setup and tools](docs/local-mcp.md). The website remains static; the MCP helper runs locally.
+Connect a local MCP agent to inspect the current workspace, query telemetry, navigate comparisons and request synchronized video stills. Follow the [three-step connection guide](docs/local-mcp.md#connect-in-three-steps). The header pill is orange while waiting and green when your agent is connected. The website remains static; the MCP helper runs locally.
