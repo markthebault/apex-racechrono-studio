@@ -33,6 +33,11 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage();
 const errors = [];
+const inferenceRequests = [];
+page.on("request", (r) => {
+  if (/api\.openai\.com|openrouter\.ai/.test(r.url()))
+    inferenceRequests.push(r.url());
+});
 page.on("pageerror", (e) => errors.push(e.message));
 const call = async (name, args = {}) => {
   const r = await client.callTool({ name, arguments: args }, undefined, {
@@ -129,6 +134,115 @@ try {
       2,
     ),
   );
+  // Race Engineer is MCP-only: use its exact mounted snapshot and save advice back.
+  await page
+    .getByRole("button", { name: "Race Engineer", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Copy corner review request", exact: true })
+    .waitFor();
+  assert.equal(await page.getByLabel("API key", { exact: true }).count(), 0);
+  await page
+    .getByRole("button", { name: "Copy corner review request", exact: true })
+    .click();
+  await page.getByLabel("Request for your agent", { exact: true }).waitFor();
+  const engineer = await json("apex_engineer_context");
+  assert(engineer.request?.id);
+  assert(engineer.reportSchema);
+  const passes = await json("apex_corner_review", {
+    snapshotId: engineer.snapshotId,
+    cornerId: engineer.request.cornerId,
+  });
+  const advice = {
+    format: "apex-engineer-report",
+    version: 1,
+    snapshotId: engineer.snapshotId,
+    summary: "MCP round-trip test",
+    priorities: [],
+    cornerReviews: [
+      {
+        cornerId: engineer.request.cornerId,
+        evidenceIds: passes.topThreeIds,
+        observation: "The selected passes show different speed profiles.",
+        possibleMistakes:
+          "Traffic or a different approach may explain the variation.",
+        advice:
+          "Use a comfortable existing reference and review repeatability with your instructor.",
+        successCheck:
+          "Compare clean repetitions against the measured baseline.",
+        limitations:
+          "This is a transport test report, not a driving diagnosis.",
+      },
+    ],
+  };
+  const badReport = await client.callTool({
+    name: "apex_engineer_report",
+    arguments: {
+      requestId: engineer.request.id,
+      report: { ...advice, snapshotId: "stale" },
+    },
+  });
+  assert(badReport.isError);
+  const saved = await json("apex_engineer_report", {
+    requestId: engineer.request.id,
+    report: advice,
+  });
+  assert(saved.saved);
+  await page
+    .getByText(
+      "Use a comfortable existing reference and review repeatability with your instructor.",
+      { exact: true },
+    )
+    .waitFor();
+  assert.equal((await json("apex_engineer_context")).request, null);
+  const replay = await client.callTool({
+    name: "apex_engineer_report",
+    arguments: { requestId: engineer.request.id, report: advice },
+  });
+  assert(replay.isError);
+  await page
+    .getByRole("button", { name: "Session debrief", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Copy session review request", exact: true })
+    .click();
+  const sessionRequest = await json("apex_engineer_context");
+  const sessionReport = {
+    format: "apex-engineer-report",
+    version: 1,
+    snapshotId: sessionRequest.snapshotId,
+    priorities: [],
+    debrief: {
+      headline: "MCP session review saved",
+      assessment:
+        "No causal driving claim is established by this transport test.",
+      findings: [],
+      practicePlan: [],
+    },
+  };
+  await json("apex_engineer_report", {
+    requestId: sessionRequest.request.id,
+    report: sessionReport,
+  });
+  await page.getByText("MCP session review saved", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Corners", exact: true }).click();
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Race Engineer", exact: true })
+    .click();
+  // Report survives reload without an LLM credential or provider request.
+  await page
+    .getByText(
+      "Use a comfortable existing reference and review repeatability with your instructor.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.goto(connection.pairingUrl);
+  await page
+    .getByRole("button", { name: "Connect agent", exact: true })
+    .click();
+  await page.locator(".agent-pill.is-connected").first().waitFor();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   // Exercise the actual browser decoder with a generated two-second clip.
   const videoTest = await page.evaluate(async () => {
     const { captureFrames } = await import("/src/agent/video.ts");
@@ -181,6 +295,7 @@ try {
   assert(videoTest.colors[1][2] > 200);
   await page
     .getByRole("button", { name: "Agent connected", exact: true })
+    .first()
     .click();
   await page.getByLabel("Share linked video frames").check();
   const missingVideo = await client.callTool({
@@ -198,13 +313,14 @@ try {
   await page
     .getByRole("button", { name: "Connect agent", exact: true })
     .click();
-  await page.locator(".agent-pill.is-connected").waitFor();
+  await page.locator(".agent-pill.is-connected").first().waitFor();
   await client.close();
-  await page.locator(".agent-pill.is-waiting").waitFor();
+  await page.locator(".agent-pill.is-waiting").first().waitFor();
   assert.match(
-    await page.locator(".agent-pill").innerText(),
+    await page.locator(".agent-pill").first().innerText(),
     /MCP enabled · Waiting/,
   );
+  assert.deepEqual(inferenceRequests, []);
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({

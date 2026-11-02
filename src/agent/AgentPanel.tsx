@@ -1,3 +1,5 @@
+import { setAgentConnection } from "./connection";
+import { engineerContext, queryEngineer, submitEngineer } from "./engineer";
 import { Bot, Check, Plug, X } from "lucide-react";
 import "./agent.css";
 import { reviewSelection } from "./selection";
@@ -28,6 +30,11 @@ export type AgentHost = {
   importSession: (files: File[]) => Promise<unknown>;
 };
 export function AgentPanel({ host }: { host: AgentHost }) {
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener("apex-open-agent", show);
+    return () => window.removeEventListener("apex-open-agent", show);
+  }, []);
   const latest = useRef(host);
   latest.current = host;
   const [open, setOpen] = useState(false),
@@ -49,13 +56,20 @@ export function AgentPanel({ host }: { host: AgentHost }) {
   }
   const service = useRef<AnalysisService | undefined>(undefined);
   useEffect(() => {
-    const match = location.hash.match(/^#apex-agent=(\d{1,5}):([a-f0-9]{64})$/);
-    if (match) {
+    const takePairing = () => {
+      const match = location.hash.match(
+        /^#apex-agent=(\d{1,5}):([a-f0-9]{64})$/,
+      );
+      if (!match) return;
+      setConnected(false);
       setPort(match[1]);
       setToken(match[2]);
       setOpen(true);
       history.replaceState(null, "", location.pathname + location.search);
-    }
+    };
+    takePairing();
+    window.addEventListener("hashchange", takePairing);
+    return () => window.removeEventListener("hashchange", takePairing);
   }, []);
   useEffect(() => {
     generation.current++;
@@ -112,7 +126,10 @@ export function AgentPanel({ host }: { host: AgentHost }) {
           },
         });
         let result: unknown;
-        if (name === "apex_state") result = state();
+        if (name === "apex_engineer_context") result = engineerContext();
+        else if (name === "apex_engineer_report")
+          result = await submitEngineer(args.requestId, args.report);
+        else if (name === "apex_state") result = state();
         else if (name === "apex_guide") result = { guide };
         else if (name === "apex_import_session") {
           if (!permissions.current.control) throw Error("control_not_approved");
@@ -255,16 +272,21 @@ export function AgentPanel({ host }: { host: AgentHost }) {
           );
           if (!permissions.current.video) throw Error("video_access_revoked");
         } else {
-          if (!service.current) throw Error("analysis_not_prepared");
-          result = await service.current.query(
-            name.replace(/^apex_/, ""),
-            args,
-          );
+          const engineerQuery = queryEngineer(name.replace(/^apex_/, ""), args);
+          if (engineerQuery) result = await engineerQuery;
+          else {
+            if (!service.current) throw Error("analysis_not_prepared");
+            result = await service.current.query(
+              name.replace(/^apex_/, ""),
+              args,
+            );
+          }
         }
         if (
           !active ||
           !permissions.current.connected ||
           (name !== "apex_import_session" &&
+            name !== "apex_engineer_report" &&
             readGeneration !== generation.current)
         )
           throw Error("access_or_scope_changed");
@@ -281,6 +303,12 @@ export function AgentPanel({ host }: { host: AgentHost }) {
     };
   }, [connected, port, token]);
   const isConnected = connected && status === "Connected";
+  useEffect(() => {
+    setAgentConnection(
+      isConnected ? "connected" : connected ? "waiting" : "off",
+    );
+  }, [isConnected, connected]);
+  useEffect(() => () => setAgentConnection("off"), []);
   const connectionLabel = isConnected
     ? "Agent connected"
     : connected

@@ -20,10 +20,9 @@ import {
   type Snapshot,
   type Report,
 } from "./contracts";
-import { AnalysisService, reviewPrompt } from "./service";
-import { availableContext, connect } from "./webmcp";
+import { AnalysisService } from "./service";
 import { ModelPanel } from "./ModelPanel";
-import { ChatPanel } from "./ChatPanel";
+import { McpEngineer } from "./McpEngineer";
 import {
   loadReviewScope,
   saveReviewScope,
@@ -57,8 +56,6 @@ export function RaceEngineer({
   const [analysis, setAnalysis] = useState<Snapshot>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [sharing, setSharing] = useState(false),
-    [toolStatus, setToolStatus] = useState(""),
     [reportText, setReportText] = useState(""),
     [draft, setDraft] = useState<Report>(),
     [cornerText, setCornerText] = useState("");
@@ -147,7 +144,6 @@ export function RaceEngineer({
     let live = true;
     setBusy(true);
     setAnalysis(undefined);
-    setSharing(false);
     setDraft(undefined);
     setError("");
     (async () => {
@@ -189,7 +185,6 @@ export function RaceEngineer({
   useEffect(() => {
     let live = true;
     setSnapshot(undefined);
-    setSharing(false);
     setDraft(undefined);
     if (analysis)
       sha256(
@@ -214,25 +209,7 @@ export function RaceEngineer({
         : undefined,
     [snapshot, reviewSessions, analysisConfig],
   );
-  useEffect(() => {
-    if (!service) return;
-    const context = availableContext();
-    if (!context || typeof context.registerTool !== "function") {
-      setToolStatus(
-        "Site tools are unavailable in this browser. Download the review packet to use your own agent.",
-      );
-      return () => service.dispose();
-    }
-    setToolStatus(
-      "Site tools available. Access stays blocked until you approve the preview below.",
-    );
-    return connect(context, service, (e) =>
-      setToolStatus(
-        `Site tool registration failed: ${String(e)}. Packet export remains available.`,
-      ),
-    );
-  }, [service]);
-  useEffect(() => () => service?.revoke(), [service]);
+  useEffect(() => () => service?.dispose(), [service]);
   const change = (next: EngineerSettings) => {
     try {
       onChange(validateSettings(next));
@@ -310,24 +287,22 @@ export function RaceEngineer({
         </p>
       )}
       {reference && (
-        <ChatPanel
+        <McpEngineer
           snapshot={snapshot}
           sessions={reviewSessions}
           settings={config}
           onEvidence={onEvidence}
           speedUnit={speedUnit}
           onSaveReport={(report) =>
-            onSaveSettings(
-              validateSettings({
-                ...config,
-                reports: [
-                  ...config.reports.filter(
-                    (r) => r.snapshotId !== report.snapshotId,
-                  ),
-                  report,
-                ].slice(-100),
-              }),
-            )
+            onSaveSettings({
+              ...config,
+              reports: [
+                ...config.reports.filter(
+                  (r) => r.snapshotId !== report.snapshotId,
+                ),
+                report,
+              ].slice(-100),
+            })
           }
         />
       )}
@@ -679,88 +654,26 @@ export function RaceEngineer({
               </div>
             </details>
             <section className="engineer-card">
-              <h3>Review with your AI agent</h3>
-              <p>{toolStatus}</p>
+              <h3>Export analysis for your agent</h3>
               <p>
-                Sharing preview: {snapshot.sessionIds.length} selected sessions,{" "}
-                {snapshot.laps.length} laps, vehicle/condition notes, verified
-                channel summaries, corner evidence and bounded telemetry windows
-                (up to 1,000 points per call). No original files, video, precise
-                coordinates, unrelated sessions or boundary geometry. Tool
-                results disclose this approved analysis to your agent’s AI
-                provider.
-              </p>
-              <details>
-                <summary>
-                  Preview exact summary packet and review instructions
-                </summary>
-                <pre>
-                  {(() => {
-                    try {
-                      return JSON.stringify(service?.packet(), null, 2);
-                    } catch (e) {
-                      return String(e);
-                    }
-                  })()}
-                </pre>
-              </details>
-              <p className="engineer-snapshot">
-                Snapshot ID: <code>{snapshot.id}</code>
+                The MCP connection above shares this review with your local
+                agent. You can also download a portable analysis packet for an
+                offline review.
               </p>
               <button
-                disabled={!service || sharing || !availableContext()}
                 onClick={() => {
-                  service!.grant();
-                  setSharing(true);
-                }}
-              >
-                Approve this analysis for site tools
-              </button>
-              <button
-                disabled={!sharing}
-                onClick={() => {
-                  service?.revoke();
-                  setSharing(false);
-                }}
-              >
-                Revoke site-tool access
-              </button>
-              <span role="status">
-                {sharing ? "Sharing approved for this snapshot" : "Sharing off"}
-              </span>
-              <div className="engineer-actions">
-                <button
-                  onClick={() => {
-                    try {
-                      download(
-                        "apex-review-packet.json",
-                        JSON.stringify(service!.packet(), null, 2),
-                      );
-                    } catch (e) {
-                      setError((e as Error).message);
-                    }
-                  }}
-                >
-                  Download review packet
-                </button>
-                <button
-                  onClick={() =>
-                    navigator.clipboard
-                      .writeText(
-                        `${reviewPrompt}\nCurrent snapshot ID: ${snapshot.id}`,
-                      )
-                      .catch((e) => setError(e.message))
+                  try {
+                    download(
+                      "apex-review-packet.json",
+                      JSON.stringify(service!.packet(), null, 2),
+                    );
+                  } catch (e) {
+                    setError((e as Error).message);
                   }
-                >
-                  Copy review prompt
-                </button>
-              </div>
-              <p>
-                Open APEX in the ChatGPT built-in browser, import your project
-                there, and approve its selected analysis. That browser has
-                separate local storage. Agent availability and account limits
-                vary. Ordinary browsers can use the packet fallback.
-              </p>
+                }}
+              >
+                Download review packet
+              </button>
             </section>
             <section className="engineer-card">
               <h3>Evidence-linked AI draft</h3>

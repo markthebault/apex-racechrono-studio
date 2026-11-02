@@ -443,11 +443,11 @@ export function CornerCoach({
                   disabled={busy || !canAnalyze || !best}
                   onClick={onAnalyze}
                 >
-                  Analyze this corner <Sparkles size={14} />
+                  Copy corner review request <Sparkles size={14} />
                 </button>
                 <p>
                   {!canAnalyze
-                    ? "Connect your API key above to get AI advice."
+                    ? "Connect your MCP agent above to request advice."
                     : "Uses the selected model and reasoning effort."}
                 </p>
               </div>

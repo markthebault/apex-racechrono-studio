@@ -2142,3 +2142,42 @@
 .corner-reasoning > .corner-advice-block:first-of-type {
   margin-top: 20px;
 }
+.engineer-mcp-intro {
+  padding: 18px;
+  margin: 20px 0;
+  border: 1px solid var(--lab-line);
+  border-radius: 12px;
+  background: var(--lab-paper);
+}
+.engineer-mcp-intro p {
+  max-width: 760px;
+  line-height: 1.6;
+  color: var(--lab-muted);
+}
+.engineer-mcp-request,
+.engineer-mcp-followup label {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.engineer-mcp-request textarea,
+.engineer-mcp-followup textarea {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  font: inherit;
+  padding: 12px;
+  background: var(--lab-surface);
+  color: var(--lab-ink);
+  border: 1px solid var(--lab-line);
+  border-radius: 8px;
+  line-height: 1.5;
+}
+.engineer-mcp-request small {
+  color: var(--lab-muted);
+}
+.engineer-mcp-followup {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--lab-line);
+}

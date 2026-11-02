@@ -1,10 +1,32 @@
 import { analysisTools } from "../raceEngineer/tools";
-export const guide = `Read apex_state first. Distinguish selected laps, visible range and cursor from the approved analysis snapshot. Call apex_prepare_analysis with explicit recorded lapIds and referenceId, then use the returned snapshotId with analysis tools. Telemetry queries use meters of reference progress and canonical channels. GPS cannot prove pedal inputs, unused grip or the ideal line. Compare multiple clean repetitions; report gaps, contrary evidence and traffic/condition hypotheses. Every theoretical lap must include its sector count; all laps contribute except sectors overlapping GPS gaps longer than 2 seconds. Video images are optional evidence: inspect sequences before/at/after a corner and compare laps. State visible observations separately from hypotheses; do not infer exact edge distances, camera calibration or optimal apex from a still. No video means no visual line verdict.`;
+export const guide = `Read apex_state first. For requests created in Race Engineer, use apex_engineer_context and its exact snapshot ID instead of preparing a separate analysis; return the validated report through apex_engineer_report. Distinguish selected laps, visible range and cursor from the approved analysis snapshot. Call apex_prepare_analysis with explicit recorded lapIds and referenceId, then use the returned snapshotId with analysis tools. Telemetry queries use meters of reference progress and canonical channels. GPS cannot prove pedal inputs, unused grip or the ideal line. Compare multiple clean repetitions; report gaps, contrary evidence and traffic/condition hypotheses. Every theoretical lap must include its sector count; all laps contribute except sectors overlapping GPS gaps longer than 2 seconds. Video images are optional evidence: inspect sequences before/at/after a corner and compare laps. State visible observations separately from hypotheses; do not infer exact edge distances, camera calibration or optimal apex from a still. No video means no visual line verdict.`;
 const schema = (
   properties: Record<string, object> = {},
   required: string[] = [],
 ) => ({ type: "object", properties, required, additionalProperties: false });
 export const tools = [
+  {
+    name: "apex_engineer_context",
+    description:
+      "Read the open Race Engineer review, pending user request, exact snapshot ID and report schema. Start here when asked to review from Race Engineer.",
+    inputSchema: schema(),
+  },
+  {
+    name: "apex_engineer_report",
+    description:
+      "Return evidence-linked advice for the pending Race Engineer request and save it in Apex. Requires exact requestId and current snapshot; rejects stale or invalid reports.",
+    inputSchema: schema(
+      {
+        requestId: { type: "string" },
+        report: {
+          type: "object",
+          description:
+            "Report matching reportSchema from apex_engineer_context.",
+        },
+      },
+      ["requestId", "report"],
+    ),
+  },
   {
     name: "apex_state",
     description:

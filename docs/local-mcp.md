@@ -45,6 +45,10 @@ Press **Connect agent** in Apex. If your browser asks to access apps on this dev
 
 Navigation/import and video frames are optional checkboxes. Enable only the access you want. To stop sharing, click the status pill, then **Disconnect agent**.
 
+## Use Race Engineer without API keys
+
+Open **Race Engineer**, select a corner or **Session debrief**, and copy the review request into your connected agent’s chat. The agent reads the current review through `apex_engineer_context`, then sends advice back with `apex_engineer_report`. Advice appears in Apex and is saved locally. Asking a question creates a request to send; it does not automatically start an AI turn. Your agent manages its own model/account.
+
 Try asking:
 
 > Explain the difference between the two laps I’m looking at. Start with my current selection.
@@ -63,6 +67,8 @@ Hosted HTTPS pages need browser permission to access loopback services. Start wi
 
 ## Tools
 
+- `apex_engineer_context`: current Race Engineer snapshot, pending user request and expected report schema. The tab must be open and ready.
+- `apex_engineer_report`: return a report for that exact request and snapshot, validate its sources, merge existing advice and save it in Apex. Invalid, stale or replayed reports are refused.
 - `apex_connection`: pairing URL and connected status; available before pairing.
 - `apex_import_session`: read a local `.rcz`/`.vbo` file (maximum 8 MiB) and import it into the paired tab, with control permission. Larger files can be imported through the UI. This helper provides no arbitrary file-writing or JavaScript-execution tool.
 - `apex_state`: workspace, lap A/B, visible chart channels, units, range, cursor, hover, playback, recording/lap inventory, video availability, permissions and view revision.
