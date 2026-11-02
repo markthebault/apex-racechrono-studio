@@ -11,7 +11,8 @@
     "deploy": "sh scripts/deploy.sh",
     "deploy:pages": "node scripts/deploy-pages.mjs",
     "mcp": "node mcp/server.mjs",
-    "test:mcp": "node scripts/test-mcp.mjs"
+    "test:mcp": "node scripts/test-mcp.mjs",
+    "test:mcp-install": "node scripts/test-mcp-install.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

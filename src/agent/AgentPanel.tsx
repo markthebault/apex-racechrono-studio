@@ -417,10 +417,12 @@ export function AgentPanel({ host }: { host: AgentHost }) {
                     {
                       mcpServers: {
                         apex: {
-                          command: "npx",
+                          command: "npm",
                           args: [
+                            "exec",
                             "--yes",
                             "--package=github:markthebault/apex-racechrono-studio",
+                            "--",
                             "apex-mcp",
                           ],
                         },

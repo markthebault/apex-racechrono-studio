@@ -8,16 +8,18 @@ Apex remains a static app. A Node.js helper runs alongside your agent and connec
 
 Install [Node.js 22 or newer](https://nodejs.org/). You do not need to download Apex’s source code.
 
-In your AI app’s **MCP settings**, use **npx** as the command and these arguments:
+In your AI app’s **MCP settings**, use **npm** as the command and these arguments:
 
 ```json
 {
   "mcpServers": {
     "apex": {
-      "command": "npx",
+      "command": "npm",
       "args": [
+        "exec",
         "--yes",
         "--package=github:markthebault/apex-racechrono-studio",
+        "--",
         "apex-mcp"
       ]
     }
@@ -30,7 +32,7 @@ Your agent downloads the helper from Apex’s public GitHub repository and start
 The equivalent terminal command is:
 
 ```sh
-npx --yes --package=github:markthebault/apex-racechrono-studio apex-mcp
+npm exec --yes --package=github:markthebault/apex-racechrono-studio -- apex-mcp
 ```
 
 The terminal command starts an MCP stdio server, so it normally waits for an agent rather than showing an interactive interface. For a persistent installation, you can use `npm install --global github:markthebault/apex-racechrono-studio` and configure **apex-mcp** as the command. This installs from GitHub; it is not a package published to the npm registry. For a fixed version, append `#<commit-or-tag>` to the GitHub package reference.
@@ -98,3 +100,5 @@ Video evidence can support observations about visible kerbs, apex timing, traffi
 `npm test` runs the existing unit suite. `npm run build` checks TypeScript and produces the static app. With a dev server running, set `APEX_FIXTURES` to your demo recording folder and run `npm run test:mcp`. Optionally set `APEX_TEST_APP` and `CHROME_PATH`. The browser test imports real recordings through a real stdio MCP client and local WebSocket, exercises scope checks, analysis, navigation, permission denial, disconnect and generated-video decoding. It skips when `APEX_FIXTURES` is absent. Detailed results are written to ignored `evidence/` files. It does not invoke a separately billed AI provider.
 
 Only `dist/` is deployed. Demo recordings live outside the public assets and production build.
+
+To verify the public installer, set `APEX_MCP_PACKAGE` to a GitHub package reference (optionally pinned to a commit/tag), then run `npm run test:mcp-install`. It downloads and starts the public package through `npm exec` and checks the MCP handshake and pairing tool. Leave the variable unset to skip the network install. A fresh npm cache can be selected with npm’s standard `npm_config_cache` setting.
