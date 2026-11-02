@@ -122,7 +122,7 @@ Practice instructions may name known corners or laps and request small repetitio
 
 ## Numbered turns in Analyze
 
-Analyze detects GPS bends on its reference lap and labels them **T1, T2, …** in driving order. The 2D and 3D map and turn picker share these IDs; selecting a turn focuses its distance range and moves the cursor to its representative bend point. Sector gates remain separate.
+Analyze detects GPS bends on its reference lap and labels them **T1, T2, …** in driving order. The 2D and 3D map and turn picker share these IDs; selecting a turn focuses its distance range and moves the cursor to its representative bend point. Sector gates remain separate. Turn labels sit halfway through the accumulated direction change, which keeps a brief curvature peak on entry from pulling the marker away from the body of the bend. This representative point is not a surveyed geometric apex.
 
 Turn IDs are local to the reference lap and can change when the reference or track scope changes. They are not official circuit numbers, surveyed corners or verified geometric apexes. Gentle, noisy or closely connected bends may be omitted or grouped. Detection does not change timing gates, theoretical-lap sectors or coaching eligibility.
 
