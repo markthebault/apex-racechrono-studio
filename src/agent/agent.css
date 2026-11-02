@@ -252,3 +252,27 @@
 .agent-pill.is-off {
   color: var(--lab-muted);
 }
+
+.agent-code-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--lab-night-muted);
+  font-size: 10px;
+}
+.agent-code-heading button {
+  padding: 5px 7px;
+  font-size: 10px;
+  background: var(--studio-raised);
+  color: var(--lab-night-text);
+  border-color: var(--studio-border);
+}
+.agent-setup .agent-install-command {
+  color: #c0f3df;
+  user-select: all;
+}
+.agent-copy-status {
+  min-height: 16px;
+}

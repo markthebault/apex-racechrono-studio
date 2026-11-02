@@ -2,7 +2,7 @@ import type { DetectedTurn } from "../turns";
 import { turnContext } from "./turns";
 import { setAgentConnection } from "./connection";
 import { engineerContext, queryEngineer, submitEngineer } from "./engineer";
-import { Bot, Check, Plug, X } from "lucide-react";
+import { Bot, Check, Copy, Plug, X } from "lucide-react";
 import "./agent.css";
 import { reviewSelection } from "./selection";
 import { useEffect, useRef, useState } from "react";
@@ -14,6 +14,20 @@ import type { Snapshot } from "../raceEngineer/contracts";
 import { AnalysisService } from "../raceEngineer/service";
 import { captureFrames } from "./video";
 import { guide, startBridge } from "./bridge";
+const helperPackage = "github:markthebault/apex-racechrono-studio";
+const helperCommand = `npm exec --yes --package=${helperPackage} -- apex-mcp`;
+const helperConfig = JSON.stringify(
+  {
+    mcpServers: {
+      apex: {
+        command: "npm",
+        args: ["exec", "--yes", `--package=${helperPackage}`, "--", "apex-mcp"],
+      },
+    },
+  },
+  null,
+  2,
+);
 export type AgentHost = {
   sessions: Session[];
   settings: Settings;
@@ -40,6 +54,15 @@ export function AgentPanel({ host }: { host: AgentHost }) {
     window.addEventListener("apex-open-agent", show);
     return () => window.removeEventListener("apex-open-agent", show);
   }, []);
+  const [copyStatus, setCopyStatus] = useState("");
+  const copySetup = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyStatus(`${what} copied`);
+    } catch {
+      setCopyStatus("Clipboard unavailable. Select and copy the text below.");
+    }
+  };
   const latest = useRef(host);
   latest.current = host;
   const [open, setOpen] = useState(false),
@@ -407,31 +430,43 @@ export function AgentPanel({ host }: { host: AgentHost }) {
             <summary>How to connect · 3 simple steps</summary>
             <ol>
               <li>
-                <strong>Add Apex to your agent</strong>
+                <strong>Connect directly from GitHub</strong>
                 <p>
-                  Install Node.js 22+ and add Apex in your agent’s MCP settings.
-                  No checkout is needed.
+                  Install Node.js 22+. The helper downloads from Apex’s public
+                  repository—no checkout, <code>npm ci</code>, or local script
+                  path needed.
                 </p>
-                <pre>
-                  {JSON.stringify(
-                    {
-                      mcpServers: {
-                        apex: {
-                          command: "npm",
-                          args: [
-                            "exec",
-                            "--yes",
-                            "--package=github:markthebault/apex-racechrono-studio",
-                            "--",
-                            "apex-mcp",
-                          ],
-                        },
-                      },
-                    },
-                    null,
-                    2,
-                  )}
-                </pre>
+                <div className="agent-code-heading">
+                  <span>Terminal command</span>
+                  <button
+                    onClick={() => void copySetup(helperCommand, "Command")}
+                  >
+                    <Copy size={12} /> Copy command
+                  </button>
+                </div>
+                <pre className="agent-install-command">{helperCommand}</pre>
+                <p>
+                  To connect your AI app, copy this into its MCP settings. Your
+                  agent installs and starts the helper automatically.
+                </p>
+                <div className="agent-code-heading">
+                  <span>MCP configuration</span>
+                  <button
+                    onClick={() =>
+                      void copySetup(helperConfig, "Configuration")
+                    }
+                  >
+                    <Copy size={12} /> Copy configuration
+                  </button>
+                </div>
+                <pre>{helperConfig}</pre>
+                <p
+                  className="agent-copy-status"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {copyStatus}
+                </p>
               </li>
               <li>
                 <strong>Ask your agent for a pairing link</strong>
