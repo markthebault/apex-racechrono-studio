@@ -47,6 +47,7 @@ export type EngineerSettings = {
   corners: Record<string, Corner[]>;
   reports: Report[];
   crossDay: boolean;
+  reviewMode?: "turns" | "sections";
 };
 export const emptySettings = (): EngineerSettings => ({
   version: 1,
@@ -176,6 +177,7 @@ export type Snapshot = {
   algorithm: string;
   id: string;
   referenceId: string;
+  reviewMode?: "turns" | "sections";
   sessionIds: string[];
   contexts: Record<string, Context>;
   capabilities: Record<string, Capability[]>;
@@ -212,6 +214,8 @@ export function validateSettings(value: unknown): EngineerSettings {
     !v ||
     v.version !== 1 ||
     typeof v.crossDay !== "boolean" ||
+    (v.reviewMode !== undefined &&
+      !["turns", "sections"].includes(v.reviewMode)) ||
     !v.contexts ||
     !v.mappings ||
     !v.corners ||
@@ -256,6 +260,7 @@ export function validateSettings(value: unknown): EngineerSettings {
     corners: v.corners,
     reports: v.reports.map(validateReportShape),
     crossDay: v.crossDay,
+    reviewMode: v.reviewMode ?? "sections",
   };
 }
 export function validateCorners(v: unknown, length = Infinity): Corner[] {

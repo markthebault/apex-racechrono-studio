@@ -193,6 +193,8 @@ export function CornerCoach({
   canAnalyze: boolean;
   humanize: (s: string) => string;
 }) {
+  const isTurns = snapshot.reviewMode === "turns";
+  const unit = isTurns ? "turn" : "section";
   const turnCatalogue = useTurnCatalogue();
   const links = useMemo(
     () => engineerTurnLinks(snapshot, sessions),
@@ -265,10 +267,12 @@ export function CornerCoach({
     <div className="corner-workspace">
       <div className="corner-browser">
         <div>
-          <span className="debrief-kicker">CORNER BY CORNER</span>
+          <span className="debrief-kicker">
+            {isTurns ? "TURN BY TURN" : "SECTION BY SECTION"}
+          </span>
           <h2>Your three best passes. One clearer next step.</h2>
           <p>
-            Ranked by time through this section, across your selected comparable
+            Ranked by time through this {unit}, across your selected comparable
             laps.
           </p>
         </div>
@@ -281,9 +285,9 @@ export function CornerCoach({
             <ArrowLeft size={16} />
           </button>
           <label>
-            <span className="sr-only">Corner / section</span>
+            <span className="sr-only">{isTurns ? "Turn" : "Section"}</span>
             <select
-              aria-label="Corner / section"
+              aria-label={isTurns ? "Turn" : "Section"}
               value={cornerId}
               disabled={busy}
               onChange={(e) => onCornerChange(e.target.value)}
@@ -346,7 +350,7 @@ export function CornerCoach({
               <div className="corner-top-heading">
                 <strong>
                   Best {Math.min(3, data.passes.filter((p) => p.rank).length)}{" "}
-                  passes through this section
+                  passes through this {unit}
                 </strong>
                 <span>Select a pass to compare on the map</span>
                 <span>
@@ -354,7 +358,7 @@ export function CornerCoach({
                   {sources("lateral")}
                 </span>
               </div>
-              {!best && <p>No quality-eligible pass in this section yet.</p>}
+              {!best && <p>No quality-eligible pass in this {unit} yet.</p>}
               {data.passes
                 .filter((p) => p.rank)
                 .map((p, i) => {
@@ -424,7 +428,7 @@ export function CornerCoach({
                 : "Compare this corner"}
             </h3>
             <p className="corner-time-note">
-              Observed section difference · not a promised gain
+              Observed {unit} difference · not a promised gain
             </p>
             {advice ? (
               <>
@@ -480,7 +484,7 @@ export function CornerCoach({
                 disabled={!reference}
                 onClick={() => reference && onEvidence(reference, comparison)}
               >
-                Open this section <ArrowUpRight size={14} />
+                Open this {unit} <ArrowUpRight size={14} />
               </button>
               {advice && (
                 <button disabled={busy || !canAnalyze} onClick={onAnalyze}>
@@ -489,8 +493,9 @@ export function CornerCoach({
               )}
             </div>
             <p className="corner-auto-note">
-              Auto sections may contain several bends. Use Laps &amp; context to
-              verify or edit boundaries.
+              {isTurns
+                ? "Turn numbers match Analyze and follow its reference lap. These are detected GPS bends, not official circuit numbers or verified apexes."
+                : "Auto sections may contain several bends. Use Laps & context to verify or edit boundaries."}
             </p>
           </div>
         </div>

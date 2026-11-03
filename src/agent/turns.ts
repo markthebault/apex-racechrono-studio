@@ -56,9 +56,12 @@ export function engineerTurnLinks(snapshot: Snapshot, sessions: Session[]) {
         end = interpolate(native.distance, aligned.distance, c.end);
       return {
         cornerId: c.id,
-        turnIds: catalogue.turns
-          .filter((t) => t.end >= start && t.start <= end)
-          .map((t) => t.id),
+        turnIds:
+          snapshot.reviewMode === "turns" && ref.id === snapshot.referenceId
+            ? [c.id]
+            : catalogue.turns
+                .filter((t) => t.end >= start && t.start <= end)
+                .map((t) => t.id),
       };
     }),
   };

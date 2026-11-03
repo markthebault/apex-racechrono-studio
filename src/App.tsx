@@ -2161,6 +2161,7 @@ export default function App() {
                   <RaceEngineer
                     sessions={engineerSessions}
                     referenceId={settings.a || reference || ""}
+                    turnReferenceId={ref?.id}
                     settings={settings.engineer}
                     excluded={settings.excluded}
                     speedUnit={settings.speedUnit}

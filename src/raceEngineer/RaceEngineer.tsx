@@ -32,6 +32,7 @@ import "./engineer.css";
 export function RaceEngineer({
   sessions,
   referenceId,
+  turnReferenceId,
   settings,
   onChange,
   onSaveSettings,
@@ -41,6 +42,7 @@ export function RaceEngineer({
 }: {
   sessions: Session[];
   referenceId: string;
+  turnReferenceId?: string;
   settings?: EngineerSettings;
   onChange: (s: EngineerSettings) => void;
   onSaveSettings: (s: EngineerSettings) => Promise<void>;
@@ -48,10 +50,23 @@ export function RaceEngineer({
   speedUnit: "km/h" | "mph";
   excluded: string[];
 }) {
-  const config = useMemo(() => settings ?? emptySettings(), [settings]);
+  const config = useMemo(
+    () =>
+      ({
+        ...(settings ?? emptySettings()),
+        reviewMode: settings?.reviewMode ?? "turns",
+      }) as EngineerSettings,
+    [settings],
+  );
   const analysisConfig = useMemo(
     () => ({ ...config, reports: [] }),
-    [config.contexts, config.mappings, config.corners, config.crossDay],
+    [
+      config.contexts,
+      config.mappings,
+      config.corners,
+      config.crossDay,
+      config.reviewMode,
+    ],
   );
   const [analysis, setAnalysis] = useState<Snapshot>(),
     [busy, setBusy] = useState(false),
@@ -99,11 +114,15 @@ export function RaceEngineer({
     (state: Snapshot["modeled"]) => setModelState(state),
     [],
   );
+  const effectiveReferenceId =
+    config.reviewMode === "turns"
+      ? (turnReferenceId ?? referenceId)
+      : reviewReferenceId;
   const referenceSession =
-      sessions.find((s) => s.laps.some((l) => l.id === reviewReferenceId)) ??
+      sessions.find((s) => s.laps.some((l) => l.id === effectiveReferenceId)) ??
       sessions.find((s) => s.laps.length),
     reference =
-      referenceSession?.laps.find((l) => l.id === reviewReferenceId) ??
+      referenceSession?.laps.find((l) => l.id === effectiveReferenceId) ??
       referenceSession?.laps[0];
   const scoped = useMemo(
     () =>
@@ -276,6 +295,29 @@ export function RaceEngineer({
           line first.
         </p>
       )}
+      <div className="engineer-card engineer-mode">
+        <div
+          className="engineer-mode-switch"
+          role="group"
+          aria-label="Analysis mode"
+        >
+          {(["turns", "sections"] as const).map((mode) => (
+            <button
+              key={mode}
+              aria-pressed={config.reviewMode === mode}
+              className={config.reviewMode === mode ? "active" : ""}
+              onClick={() => change({ ...config, reviewMode: mode })}
+            >
+              {mode === "turns" ? "Turn analysis" : "Section analysis"}
+            </button>
+          ))}
+        </div>
+        <p>
+          {config.reviewMode === "turns"
+            ? "Review T1, T2, … using the same detected turns and reference lap as Analyze."
+            : "Review broader distance sections, which may combine bends. Custom section boundaries are available in advanced tools."}
+        </p>
+      </div>
       {busy && (
         <div className="engineer-preparing" role="status">
           Preparing session evidence…
@@ -288,7 +330,10 @@ export function RaceEngineer({
       )}
       {reference && (
         <McpEngineer
-          snapshot={snapshot}
+          key={config.reviewMode}
+          snapshot={
+            snapshot?.reviewMode === config.reviewMode ? snapshot : undefined
+          }
           sessions={reviewSessions}
           settings={config}
           onEvidence={onEvidence}
@@ -321,6 +366,7 @@ export function RaceEngineer({
                 Review lap
                 <select
                   aria-label="Review lap"
+                  disabled={config.reviewMode === "turns"}
                   value={reference?.id}
                   onChange={(e) => setReviewReferenceId(e.target.value)}
                 >
@@ -339,10 +385,12 @@ export function RaceEngineer({
 
               <p>
                 Reference: {referenceSession.track}, lap {reference?.number}.
-                The review lap anchors section boundaries and map examples. The
-                debrief considers every selected lap. Only checked laps on this
-                layout enter the review; the default comparison stays on the
-                same UTC recording day.
+                {config.reviewMode === "turns"
+                  ? "Turn analysis follows the Analyze reference lap to keep turn numbers consistent."
+                  : "The review lap anchors section boundaries and map examples."}{" "}
+                The debrief considers every selected lap. Only checked laps on
+                this layout enter the review; the default comparison stays on
+                the same UTC recording day.
               </p>
               <label>
                 <input
@@ -572,47 +620,51 @@ export function RaceEngineer({
                   </tbody>
                 </table>
               </div>
-              <button
-                onClick={() =>
-                  setCornerText(JSON.stringify(snapshot.corners, null, 2))
-                }
-              >
-                Edit current corner JSON
-              </button>
-              <label>
-                Ordered corner regions (meters)
-                <textarea
-                  value={cornerText}
-                  onChange={(e) => setCornerText(e.target.value)}
-                />
-              </label>
-              <button
-                onClick={() => {
-                  try {
-                    const regions = validateCorners(JSON.parse(cornerText));
-                    change({
-                      ...config,
-                      corners: {
-                        ...config.corners,
-                        [snapshot.referenceId]: regions,
-                      },
-                    });
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-                }}
-              >
-                Apply region edits
-              </button>
-              <button
-                onClick={() => {
-                  const next = { ...config.corners };
-                  delete next[snapshot.referenceId];
-                  change({ ...config, corners: next });
-                }}
-              >
-                Restore detected regions
-              </button>
+              {config.reviewMode === "sections" && (
+                <>
+                  <button
+                    onClick={() =>
+                      setCornerText(JSON.stringify(snapshot.corners, null, 2))
+                    }
+                  >
+                    Edit current corner JSON
+                  </button>
+                  <label>
+                    Ordered corner regions (meters)
+                    <textarea
+                      value={cornerText}
+                      onChange={(e) => setCornerText(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    onClick={() => {
+                      try {
+                        const regions = validateCorners(JSON.parse(cornerText));
+                        change({
+                          ...config,
+                          corners: {
+                            ...config.corners,
+                            [snapshot.referenceId]: regions,
+                          },
+                        });
+                      } catch (e) {
+                        setError((e as Error).message);
+                      }
+                    }}
+                  >
+                    Apply region edits
+                  </button>
+                  <button
+                    onClick={() => {
+                      const next = { ...config.corners };
+                      delete next[snapshot.referenceId];
+                      change({ ...config, corners: next });
+                    }}
+                  >
+                    Restore detected regions
+                  </button>
+                </>
+              )}
             </details>
             <details className="engineer-card">
               <summary>Demonstrated performance envelope</summary>

@@ -140,7 +140,7 @@ export function McpEngineer({
           className={view === "corners" ? "active" : ""}
           onClick={() => setView("corners")}
         >
-          Corners
+          {settings.reviewMode === "turns" ? "Turns" : "Sections"}
         </button>
         <button
           className={view === "session" ? "active" : ""}
@@ -211,8 +211,8 @@ export function McpEngineer({
             />
           ) : (
             <p>
-              No sections available. Use Session debrief or check Laps &amp;
-              context.
+              No {settings.reviewMode === "turns" ? "turns" : "sections"}{" "}
+              available. Use Session debrief or check Laps &amp; context.
             </p>
           )
         ) : report && (report.debrief || report.priorities.length) ? (

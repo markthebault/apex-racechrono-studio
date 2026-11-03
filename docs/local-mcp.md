@@ -81,7 +81,7 @@ Hosted HTTPS pages need browser permission to access loopback services. Start wi
 ## Tools
 
 - `apex_turns`: numbered detected bends (T1, T2…), reference ID, direction, distance bounds and selection, matching Analyze. These are automatic GPS labels, not official circuit numbering. `apex_view` accepts a `turnId` to focus one; use a separate call when changing laps.
-- `apex_engineer_context`: current Race Engineer snapshot, pending user request, expected report schema and links from its review windows to Analyze turn IDs. The tab must be open and ready.
+- `apex_engineer_context`: current Race Engineer snapshot, selected `reviewMode` (turns or sections), `reviewRegions`, pending user request, expected report schema and links to Analyze turn IDs. Turn mode uses T1, T2… directly; section mode maps broader windows to turns. The tab must be open and ready.
 - `apex_engineer_report`: return a report for that exact request and snapshot, validate its sources, merge existing advice and save it in Apex. Invalid, stale or replayed reports are refused.
 - `apex_connection`: pairing URL and connected status; available before pairing.
 - `apex_import_session`: read a local `.rcz`/`.vbo` file (maximum 8 MiB) and import it into the paired tab, with control permission. Larger files can be imported through the UI. This helper provides no arbitrary file-writing or JavaScript-execution tool.
