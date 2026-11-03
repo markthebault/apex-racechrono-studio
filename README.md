@@ -41,4 +41,4 @@ Analyze labels detected GPS bends **T1, T2, …** on the 2D/3D map. Select a tur
 
 Connected bends can receive separate numbers when two sustained tightening points are separated by a clear relaxation, even without a straight between them. Brief GPS spikes and shallow shoulders do not create additional turns.
 
-Phone and tablet Analyze keeps the map, lap comparison and compact telemetry together, with explicit Scrub / Pan / Zoom controls. See the [mobile analysis guide](docs/mobile-analysis.md).
+Phone and tablet Analyze keeps the map, lap comparison and compact telemetry together, with one-finger scrubbing and two-finger pan / pinch zoom. See the [mobile analysis guide](docs/mobile-analysis.md).
