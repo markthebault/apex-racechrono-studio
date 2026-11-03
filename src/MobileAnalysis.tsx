@@ -1,3 +1,4 @@
+import { Menu } from "lucide-react";
 import { TouchButton } from "./TouchButton";
 import { openAgentConnection, useAgentConnection } from "./agent/connection";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
@@ -143,7 +144,11 @@ export function MobileAnalysis({
   trackName,
   onView,
   onFullTools,
+  onOpenMenu,
+  menuOpen,
 }: {
+  onOpenMenu: () => void;
+  menuOpen: boolean;
   onFullTools: () => void;
   onView?: (
     view: { channels: string[]; interaction: ChartInteraction } | null,
@@ -267,6 +272,16 @@ export function MobileAnalysis({
       data-interaction={interaction}
     >
       <div className="ma-lapbar">
+        <TouchButton
+          className="ma-menu"
+          aria-label="Tracks & sessions"
+          title="Tracks & sessions"
+          aria-haspopup="dialog"
+          aria-expanded={menuOpen}
+          onClick={onOpenMenu}
+        >
+          <Menu size={20} />
+        </TouchButton>
         <TouchButton
           className="ma-lap"
           aria-label="Choose lap A"
@@ -417,10 +432,31 @@ export function MobileAnalysis({
           <span />
         </div>
         <div className="ma-telemetry">
-          <div className="ma-chart-tools">
-            <small className="ma-gesture-hint">
-              1 finger: scrub · 2: pan / zoom
-            </small>
+          <div className="ma-transport ma-chart-tools">
+            <TouchButton
+              className="ma-play"
+              aria-label={playing ? "Pause playback" : "Play playback"}
+              onClick={onPlay}
+            >
+              {playing ? "Ⅱ" : "▶"}
+            </TouchButton>
+            <span className="ma-elapsed" aria-label="Elapsed lap time">
+              {lapTime(elapsed)}
+            </span>
+            <input
+              aria-label="Track position"
+              type="range"
+              min={range[0]}
+              max={range[1]}
+              step={0.1}
+              value={Math.max(range[0], Math.min(range[1], cursor))}
+              onChange={(e) => scrub(+e.target.value)}
+            />
+            <output aria-label="Lap time delta">
+              {Number.isFinite(delta)
+                ? `${delta > 0 ? "+" : ""}${(delta / 1000).toFixed(2)}s`
+                : `${(cursor / 1000).toFixed(2)}km`}
+            </output>
             <TouchButton
               aria-label="Reset telemetry zoom"
               onClick={() => onFocusTurn(null)}
@@ -473,30 +509,6 @@ export function MobileAnalysis({
                 No recorded telemetry channels are available for this lap.
               </p>
             )}
-          </div>
-          <div className="ma-transport">
-            <TouchButton
-              className="ma-play"
-              aria-label={playing ? "Pause playback" : "Play playback"}
-              onClick={onPlay}
-            >
-              {playing ? "Ⅱ" : "▶"}
-            </TouchButton>
-            <span>{lapTime(elapsed)}</span>
-            <input
-              aria-label="Track position"
-              type="range"
-              min={range[0]}
-              max={range[1]}
-              step={0.1}
-              value={Math.max(range[0], Math.min(range[1], cursor))}
-              onChange={(e) => scrub(+e.target.value)}
-            />
-            <output aria-label="Lap time delta">
-              {Number.isFinite(delta)
-                ? `${delta > 0 ? "+" : ""}${(delta / 1000).toFixed(2)}s`
-                : `${(cursor / 1000).toFixed(2)}km`}
-            </output>
           </div>
         </div>
       </div>

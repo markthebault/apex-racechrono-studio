@@ -1,6 +1,6 @@
 # Phone and tablet analysis
 
-Analyze uses a compact workspace on narrow screens and devices with a coarse primary pointer. Portrait screens keep the map above telemetry; landscape screens use two panes side by side. Desktop analysis keeps its existing charts and tools.
+Analyze uses a compact workspace on narrow screens and devices with a coarse primary pointer. Portrait screens keep the map above telemetry; landscape screens use two panes side by side. Desktop analysis keeps its existing charts and tools. The menu icon shares one row with the A/B lap selectors; compact playback and timeline controls sit above telemetry alongside Full and Channels.
 
 - Tap **A** or **B** to choose a lap in a searchable sheet. Mobile compares A/B; additional desktop comparisons remain saved. The theoretical composite option always includes its sector count.
 - Tap or drag horizontally with **one finger** across a trace to move the shared playhead, cars and synchronized video. It does not change the zoom window.
