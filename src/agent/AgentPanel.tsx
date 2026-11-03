@@ -1,3 +1,4 @@
+import { agentSetupPrompt } from "./setupPrompt";
 import type { DetectedTurn } from "../turns";
 import { turnContext } from "./turns";
 import { setAgentConnection } from "./connection";
@@ -50,10 +51,15 @@ export type AgentHost = {
 };
 export function AgentPanel({ host }: { host: AgentHost }) {
   useEffect(() => {
-    const show = () => setOpen(true);
+    const show = () => {
+      setSetupTab("simple");
+      setOpen(true);
+    };
     window.addEventListener("apex-open-agent", show);
     return () => window.removeEventListener("apex-open-agent", show);
   }, []);
+  const [setupTab, setSetupTab] = useState<"simple" | "advanced">("simple");
+  const setupPrompt = agentSetupPrompt(location.href);
   const [copyStatus, setCopyStatus] = useState("");
   const copySetup = async (text: string, what: string) => {
     try {
@@ -92,6 +98,7 @@ export function AgentPanel({ host }: { host: AgentHost }) {
       setConnected(false);
       setPort(match[1]);
       setToken(match[2]);
+      setSetupTab("simple");
       setOpen(true);
       history.replaceState(null, "", location.pathname + location.search);
     };
@@ -362,7 +369,10 @@ export function AgentPanel({ host }: { host: AgentHost }) {
     <div className="agent-connection">
       <button
         className={`agent-pill ${isConnected ? "is-connected" : connected ? "is-waiting" : "is-off"}`}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (!open) setSetupTab("simple");
+          setOpen(!open);
+        }}
         aria-expanded={open}
         aria-controls="agent-connection-panel"
         title={
@@ -421,117 +431,204 @@ export function AgentPanel({ host }: { host: AgentHost }) {
                   ? "Your agent can read this workspace and query your data."
                   : connected
                     ? "Waiting for your local agent. Keep its app running."
-                    : "Follow the three steps below to get connected."}
+                    : "Copy the setup prompt to your agent, then open its pairing link."}
               </p>
               {connected && !isConnected && <small>{status}</small>}
             </div>
           </div>
-          <details className="agent-setup" open={!token || undefined}>
-            <summary>How to connect · 3 simple steps</summary>
-            <ol>
-              <li>
-                <strong>Connect directly from GitHub</strong>
-                <p>
-                  Install Node.js 22+. The helper downloads from Apex’s public
-                  repository—no checkout, <code>npm ci</code>, or local script
-                  path needed.
-                </p>
-                <div className="agent-code-heading">
-                  <span>Terminal command</span>
-                  <button
-                    onClick={() => void copySetup(helperCommand, "Command")}
-                  >
-                    <Copy size={12} /> Copy command
-                  </button>
-                </div>
-                <pre className="agent-install-command">{helperCommand}</pre>
-                <p>
-                  To connect your AI app, copy this into its MCP settings. Your
-                  agent installs and starts the helper automatically.
-                </p>
-                <div className="agent-code-heading">
-                  <span>MCP configuration</span>
-                  <button
-                    onClick={() =>
-                      void copySetup(helperConfig, "Configuration")
-                    }
-                  >
-                    <Copy size={12} /> Copy configuration
-                  </button>
-                </div>
-                <pre>{helperConfig}</pre>
-                <p
-                  className="agent-copy-status"
-                  role="status"
-                  aria-live="polite"
-                >
-                  {copyStatus}
-                </p>
-              </li>
-              <li>
-                <strong>Ask your agent for a pairing link</strong>
-                <p>
-                  Say: “Connect to Apex using apex_connection.” Open the link it
-                  gives you in this browser.
-                </p>
-              </li>
-              <li>
-                <strong>Enable the connection</strong>
-                <p>
-                  Press <b>Connect agent</b> below and allow device access if
-                  your browser asks. The pill turns green when connected.
-                </p>
-              </li>
-            </ol>
-          </details>
-          <div className="agent-pairing-fields">
-            <label>
-              Port
-              <input
-                aria-label="Agent port"
-                inputMode="numeric"
-                value={port}
-                disabled={connected}
-                onChange={(e) => setPort(e.target.value)}
-              />
-            </label>
-            <label>
-              Pairing token
-              <input
-                aria-label="Agent pairing token"
-                type="password"
-                placeholder="Filled by your pairing link"
-                value={token}
-                disabled={connected}
-                onChange={(e) => setToken(e.target.value)}
-              />
-            </label>
+          <div
+            className="agent-setup-tabs"
+            role="tablist"
+            aria-label="Connection setup"
+            onKeyDown={(e) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
+                return;
+              e.preventDefault();
+              const next =
+                e.key === "Home"
+                  ? "simple"
+                  : e.key === "End"
+                    ? "advanced"
+                    : setupTab === "simple"
+                      ? "advanced"
+                      : "simple";
+              setSetupTab(next);
+              document.getElementById(`agent-${next}-tab`)?.focus();
+            }}
+          >
+            <button
+              role="tab"
+              id="agent-simple-tab"
+              tabIndex={setupTab === "simple" ? 0 : -1}
+              aria-selected={setupTab === "simple"}
+              aria-controls="agent-simple-panel"
+              onClick={() => setSetupTab("simple")}
+            >
+              Simple
+            </button>
+            <button
+              role="tab"
+              id="agent-advanced-tab"
+              tabIndex={setupTab === "advanced" ? 0 : -1}
+              aria-selected={setupTab === "advanced"}
+              aria-controls="agent-advanced-panel"
+              onClick={() => setSetupTab("advanced")}
+            >
+              Advanced
+            </button>
           </div>
-          <div className="agent-permissions">
-            <span className="agent-section-label">Let your agent do more</span>
-            <label>
-              <input
-                type="checkbox"
-                checked={control}
-                onChange={(e) => setControl(e.target.checked)}
+          {setupTab === "simple" ? (
+            <div
+              id="agent-simple-panel"
+              role="tabpanel"
+              aria-labelledby="agent-simple-tab"
+              className="agent-simple-setup"
+            >
+              <h4>Let your agent connect</h4>
+              <p>
+                Copy this prompt into your local coding agent. It finds the
+                helper, creates a pairing link and checks the connection. Open
+                the link here, then press Connect agent.
+              </p>
+              <button
+                className="primary"
+                onClick={() => void copySetup(setupPrompt, "Setup prompt")}
+              >
+                <Copy size={14} /> Copy setup prompt
+              </button>
+              <textarea
+                aria-label="Agent setup prompt"
+                readOnly
+                value={setupPrompt}
+                rows={9}
               />
-              <span>
-                Allow navigation and session import
-                <small>Open comparisons and move around the data.</small>
-              </span>
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={video}
-                onChange={(e) => setVideo(e.target.checked)}
-              />
-              <span>
-                Share linked video frames
-                <small>View stills from your synchronized onboard video.</small>
-              </span>
-            </label>
-          </div>
+              <small>
+                Your agent needs local tools or an existing Apex MCP connection.
+                A chat-only client cannot start a server on your computer from a
+                prompt. Use Advanced for manual setup and optional permissions.
+              </small>
+              <p role="status" className="agent-copy-status">
+                {copyStatus}
+              </p>
+            </div>
+          ) : (
+            <div
+              id="agent-advanced-panel"
+              role="tabpanel"
+              aria-labelledby="agent-advanced-tab"
+            >
+              <details className="agent-setup" open={!token || undefined}>
+                <summary>How to connect · 3 simple steps</summary>
+                <ol>
+                  <li>
+                    <strong>Connect directly from GitHub</strong>
+                    <p>
+                      Install Node.js 22+. The helper downloads from Apex’s
+                      public repository—no checkout, <code>npm ci</code>, or
+                      local script path needed.
+                    </p>
+                    <div className="agent-code-heading">
+                      <span>Terminal command</span>
+                      <button
+                        onClick={() => void copySetup(helperCommand, "Command")}
+                      >
+                        <Copy size={12} /> Copy command
+                      </button>
+                    </div>
+                    <pre className="agent-install-command">{helperCommand}</pre>
+                    <p>
+                      To connect your AI app, copy this into its MCP settings.
+                      Your agent installs and starts the helper automatically.
+                    </p>
+                    <div className="agent-code-heading">
+                      <span>MCP configuration</span>
+                      <button
+                        onClick={() =>
+                          void copySetup(helperConfig, "Configuration")
+                        }
+                      >
+                        <Copy size={12} /> Copy configuration
+                      </button>
+                    </div>
+                    <pre>{helperConfig}</pre>
+                    <p
+                      className="agent-copy-status"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {copyStatus}
+                    </p>
+                  </li>
+                  <li>
+                    <strong>Ask your agent for a pairing link</strong>
+                    <p>
+                      Say: “Connect to Apex using apex_connection.” Open the
+                      link it gives you in this browser.
+                    </p>
+                  </li>
+                  <li>
+                    <strong>Enable the connection</strong>
+                    <p>
+                      Press <b>Connect agent</b> below and allow device access
+                      if your browser asks. The pill turns green when connected.
+                    </p>
+                  </li>
+                </ol>
+              </details>
+              <div className="agent-pairing-fields">
+                <label>
+                  Port
+                  <input
+                    aria-label="Agent port"
+                    inputMode="numeric"
+                    value={port}
+                    disabled={connected}
+                    onChange={(e) => setPort(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Pairing token
+                  <input
+                    aria-label="Agent pairing token"
+                    type="password"
+                    placeholder="Filled by your pairing link"
+                    value={token}
+                    disabled={connected}
+                    onChange={(e) => setToken(e.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="agent-permissions">
+                <span className="agent-section-label">
+                  Let your agent do more
+                </span>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={control}
+                    onChange={(e) => setControl(e.target.checked)}
+                  />
+                  <span>
+                    Allow navigation and session import
+                    <small>Open comparisons and move around the data.</small>
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={video}
+                    onChange={(e) => setVideo(e.target.checked)}
+                  />
+                  <span>
+                    Share linked video frames
+                    <small>
+                      View stills from your synchronized onboard video.
+                    </small>
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
           <p className="agent-privacy">
             Connecting shares workspace details and requested data with your
             agent and its model provider. Disconnect at any time to stop access.

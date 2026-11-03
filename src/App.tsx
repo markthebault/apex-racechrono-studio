@@ -1,3 +1,9 @@
+import {
+  useStoredView,
+  workspaceTab,
+  turnSelection,
+  viewBoolean,
+} from "./viewState";
 import { detectTurns, turnFocusRange, turnLimitations } from "./turns";
 import { setTurnCatalogue } from "./agent/turns";
 import { AgentPanel } from "./agent/AgentPanel";
@@ -150,14 +156,18 @@ export default function App() {
     [settings, setSettings] = useState(defaults),
     [sync, setSync] = useState(emptySync),
     [ready, setReady] = useState(false),
-    [tab, setTab] = useState("Analyze"),
+    [tab, setTab] = useStoredView("workspace-tab", "Analyze", workspaceTab),
     [status, setStatus] = useState(""),
     [error, setError] = useState(""),
     [cursor, setCursor] = useState(0),
     [range, setRange] = useState<[number, number]>([0, 20000]),
     [playing, setPlaying] = useState(false),
     [files, setFiles] = useState<Record<string, string>>({}),
-    [showVideos, setShowVideos] = useState(false),
+    [showVideos, setShowVideos] = useStoredView(
+      "analyze-videos",
+      false,
+      viewBoolean,
+    ),
     [catalog, setCatalog] = useState<Venue[]>([]),
     [catalogFailed, setCatalogFailed] = useState(false),
     [search, setSearch] = useState(""),
@@ -277,12 +287,23 @@ export default function App() {
   }, [sessions, reference]);
   const ref = traces.find((t) => t.id === reference);
   const detectedTurns = useMemo(() => (ref ? detectTurns(ref) : []), [ref]);
-  const [selectedTurn, setSelectedTurn] = useState<string | null>(null);
+  const [selectedTurn, setSelectedTurn] = useStoredView<string | null>(
+    ref ? `analyze-turn:${ref.id}` : null,
+    null,
+    turnSelection,
+  );
   useEffect(() => {
     setTurnCatalogue(ref, detectedTurns);
-    setSelectedTurn(null);
     return () => setTurnCatalogue(undefined, []);
   }, [ref, detectedTurns]);
+  useEffect(() => {
+    if (
+      ref &&
+      selectedTurn &&
+      !detectedTurns.some((t) => t.id === selectedTurn)
+    )
+      setSelectedTurn(null);
+  }, [ref, detectedTurns, selectedTurn, setSelectedTurn]);
   const layout = settings.layouts.find((l) => l.referenceId === reference);
   const gates = useMemo(
     () =>
@@ -542,9 +563,10 @@ export default function App() {
     if (a) {
       setPlaying(false);
       setLoopSection(false);
-      setRange([0, a.length]);
+      const turn = detectedTurns.find((t) => t.id === selectedTurn);
+      setRange(turn ? turnFocusRange(turn, a.length) : [0, a.length]);
       setExact(null);
-      setCursor(0);
+      setCursor(turn?.position ?? 0);
     }
   }, [a?.id, a?.length]);
   useEffect(() => {
@@ -1377,7 +1399,12 @@ export default function App() {
                     }
                     return;
                   }
-                  setSelectedTurn(null);
+                  if (
+                    args.lapId !== undefined ||
+                    args.range ||
+                    args.cursor !== undefined
+                  )
+                    setSelectedTurn(null);
                   if (args.lapId !== undefined)
                     patch({
                       a: String(args.lapId),

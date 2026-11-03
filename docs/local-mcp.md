@@ -2,6 +2,14 @@
 
 Apex remains a static app. A Node.js helper runs alongside your agent and connects to one explicitly paired browser tab over loopback WebSocket. No hosted inference or relay is involved. Use Node.js 22+.
 
+## Simple connection
+
+Open **Connect AI agent**. The **Simple** tab opens by default: choose **Copy setup prompt** and paste it into your local coding agent. The prompt points to the public helper script, tells the agent to use existing Apex MCP tools or run its own MCP client/helper, create a real pairing link, and verify both `apex_connection` and `apex_state` before reporting success. It does not ask you to install an extension or manually change global MCP settings.
+
+Open the pairing link in this browser profile on the same computer as the helper, press **Connect agent**, and approve device access if requested. The prompt does not contain your pairing token. The green pill confirms a live connection. **Advanced** retains the manual guide, command/configuration, port/token fields, and optional navigation/video permissions.
+
+The agent needs local execution tools or an existing usable Apex MCP connection. A chat-only client cannot acquire access to your computer just by receiving a prompt. If those tools are unavailable, use a compatible local agent or the manual setup below. Closing the local MCP client/helper ends its connection.
+
 ## Connect in three steps
 
 ### 1. Add Apex to your agent

@@ -1,3 +1,4 @@
+import { useStoredView, viewId } from "../viewState";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Check, Copy } from "lucide-react";
 import type { Session } from "../model";
@@ -30,9 +31,19 @@ export function McpEngineer({
   speedUnit: "km/h" | "mph";
   onSaveReport: (report: Report) => void | Promise<void>;
 }) {
-  const [view, setView] = useState<"corners" | "session">("corners");
-  const [chosenCorner, setChosenCorner] = useState(""),
-    [question, setQuestion] = useState(""),
+  const [view, setView] = useStoredView<"corners" | "session">(
+    "engineer-panel",
+    "corners",
+    (v): v is "corners" | "session" => v === "corners" || v === "session",
+  );
+  const [chosenCorner, setChosenCorner] = useStoredView(
+    snapshot
+      ? `engineer-region:${snapshot.referenceId}:${snapshot.reviewMode ?? "sections"}`
+      : null,
+    "",
+    viewId,
+  );
+  const [question, setQuestion] = useState(""),
     [prompt, setPrompt] = useState(""),
     [status, setStatus] = useState(""),
     [error, setError] = useState("");

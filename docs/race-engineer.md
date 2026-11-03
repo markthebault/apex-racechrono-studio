@@ -13,6 +13,8 @@ Use **Turn analysis / Section analysis** at the top of Race Engineer.
 
 In individual reviews, the full-track map shows clickable **T1, T2…** labels in turn mode and **S1, S2…** labels in section mode. Click a highlighted track segment or its label to select the review below. The selected region is orange. The dropdown and previous/next buttons stay synchronized; map labels also work with Tab, Enter and Space.
 
+Your menu view, individual-review/session-debrief choice, selected turn or section, comparison pass and advanced-panel visibility are remembered in this browser's local storage. Region selections are kept separately per reference lap and analysis mode; a missing region/pass falls back to an available choice. Analyze also remembers its selected turn and 2D/3D view. Refreshing or switching workspace tabs restores these choices. Live MCP connections, pairing tokens and video file access are not restored by these preferences.
+
 The switch applies to both individual reviews and session debriefs. It rebuilds evidence and clears pending agent requests. Advice is saved separately for each snapshot, so a section report cannot appear as advice for T1. New workspaces start with turn analysis; the selected mode is saved with project settings.
 
 MCP exposes `reviewMode` and `reviewRegions` in `apex_engineer_context`. In turn mode the region IDs are the same T IDs as `apex_turns`; in section mode `numberedTurns.sections` maps review windows to T IDs. Use the current snapshot ID for every query and report.
