@@ -201,3 +201,49 @@ export function trackPicture(t: Trace, corner: Corner, minimum?: number) {
     },
   };
 }
+
+// Use one projection for the full lap and every review region. Gaps remain
+// separate SVG subpaths, so the selector never invents a connecting GPS line.
+export function trackOverview(
+  t: Trace,
+  corners: Corner[],
+  positions: Record<string, number> = {},
+) {
+  const whole = gpsPoints(t, 0, t.length, 1400);
+  if (whole.length < 2 || !whole.some((p, i) => i > 0 && !p.move)) return;
+  const project = projection(whole, { x: 48, y: 36, width: 804, height: 308 });
+  const placed: XY[] = [];
+  const regions = corners.map((corner) => {
+    const region = gpsPoints(t, corner.start, corner.end, 300).filter(
+      (p) => p.distance >= corner.start && p.distance <= corner.end,
+    );
+    const d = positions[corner.id] ?? (corner.start + corner.end) / 2;
+    const point = atDistance(t, d);
+    const anchor = point && project(point);
+    let label: XY | undefined;
+    if (anchor) {
+      // Spread nearby labels and retain a leader to their actual track point.
+      const offsets = [0, 28, 48, 72, 96].flatMap((r) =>
+        r === 0
+          ? [[0, 0]]
+          : Array.from({ length: 8 }, (_, i) => [
+              Math.cos((i * Math.PI) / 4) * r,
+              Math.sin((i * Math.PI) / 4) * r,
+            ]),
+      );
+      const candidates = offsets.map(([dx, dy]) => ({
+        x: Math.max(28, Math.min(872, anchor.x + dx)),
+        y: Math.max(18, Math.min(362, anchor.y + dy)),
+      }));
+      label =
+        candidates.find((p) =>
+          placed.every(
+            (q) => Math.abs(p.x - q.x) >= 58 || Math.abs(p.y - q.y) >= 32,
+          ),
+        ) ?? candidates[0];
+      placed.push(label);
+    }
+    return { id: corner.id, path: path(region, project), anchor, label };
+  });
+  return { whole: path(whole, project), regions };
+}

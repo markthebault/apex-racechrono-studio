@@ -2203,3 +2203,106 @@
   margin-bottom: 0;
   color: var(--review-muted);
 }
+
+.engineer-track-picker {
+  margin: 24px 0;
+  padding: 20px;
+  border: 1px solid var(--review-border);
+  border-radius: 16px;
+  background: #172630;
+  color: #eef3f6;
+}
+.engineer .engineer-track-picker h2 {
+  color: #eef3f6;
+  font-size: 20px;
+}
+.engineer .engineer-track-picker p {
+  color: #a1b3bf;
+  font-size: 13px;
+}
+.engineer-track-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.engineer-track-heading > span {
+  color: #ffad7e;
+  font-size: 13px;
+}
+.engineer-track-picker svg {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  margin: 12px 0;
+}
+.engineer-track-base,
+.engineer-track-region {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.engineer-track-base {
+  stroke: #445965;
+  stroke-width: 9;
+}
+.engineer-track-region {
+  stroke: #86b9aa;
+  stroke-width: 11;
+  cursor: pointer;
+}
+.engineer-track-segment:hover .engineer-track-region {
+  stroke: #b8e0d2;
+  stroke-width: 16;
+}
+.engineer-track-region.selected {
+  stroke: #ff965e;
+  stroke-width: 15;
+}
+.engineer-track-label {
+  cursor: pointer;
+  outline: none;
+}
+.engineer-track-label line {
+  stroke: #86b9aa;
+  stroke-width: 1.5;
+}
+.engineer-track-label circle {
+  fill: #86b9aa;
+}
+.engineer-track-label rect {
+  fill: #183b36;
+  stroke: #86b9aa;
+  stroke-width: 1.5;
+}
+.engineer-track-label text {
+  fill: #c5efe0;
+  font-size: 15px;
+  font-weight: 700;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.engineer-track-label.selected rect {
+  fill: #ff965e;
+  stroke: #ff965e;
+}
+.engineer-track-label.selected text {
+  fill: #172630;
+}
+.engineer-track-label.selected line {
+  stroke: #ff965e;
+}
+.engineer-track-label:hover rect,
+.engineer-track-label:focus-visible rect {
+  stroke: white;
+  stroke-width: 3;
+}
+
+.engineer-track-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 28;
+  cursor: pointer;
+  pointer-events: stroke;
+}
