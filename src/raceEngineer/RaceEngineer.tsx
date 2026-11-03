@@ -1,3 +1,4 @@
+import { useStoredView, viewBoolean } from "../viewState";
 import { sha256 } from "hash-wasm";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import type { Session } from "../model";
@@ -88,7 +89,11 @@ export function RaceEngineer({
       status: "unavailable",
       reasons: ["No validated boundary asset selected."],
     });
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useStoredView(
+    "engineer-options",
+    false,
+    viewBoolean,
+  );
   const [reviewReferenceId, setReviewReferenceId] = useState(
     initialScope.referenceId,
   );

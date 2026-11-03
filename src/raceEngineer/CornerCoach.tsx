@@ -1,3 +1,4 @@
+import { useStoredView, viewId } from "../viewState";
 import { useTurnCatalogue, engineerTurnLinks } from "../agent/turns";
 import { reviewSelection } from "../agent/selection";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -206,7 +207,11 @@ export function CornerCoach({
     () => cornerReview(snapshot, sessions, settings, cornerId),
     [snapshot, sessions, settings, cornerId],
   );
-  const [chosen, setChosen] = useState("");
+  const [chosen, setChosen] = useStoredView(
+    `engineer-pass:${snapshot.referenceId}:${snapshot.reviewMode ?? "sections"}:${cornerId}`,
+    "",
+    viewId,
+  );
   const advice = report?.cornerReviews?.find((c) => c.cornerId === cornerId);
   const reference = snapshot.evidence.find(
     (e) => e.cornerId === cornerId && e.lapId === snapshot.referenceId,

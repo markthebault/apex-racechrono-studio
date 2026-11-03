@@ -1,9 +1,14 @@
+import { useStoredView } from "./viewState";
 import { lazy, Suspense, useState, type ComponentProps } from "react";
 import { TrackMap } from "./Map";
 const Track3D = lazy(() => import("./Track3D"));
 export type TrackViewProps = ComponentProps<typeof TrackMap>;
 export function TrackView(props: TrackViewProps) {
-  const [view, setView] = useState<"2d" | "3d">("2d");
+  const [view, setView] = useStoredView<"2d" | "3d">(
+    "analyze-map",
+    "2d",
+    (v): v is "2d" | "3d" => v === "2d" || v === "3d",
+  );
   const [height3d, setHeight3d] = useState(Math.max(props.height, 520));
   return (
     <div className="track-view">

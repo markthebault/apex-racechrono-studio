@@ -276,3 +276,34 @@
 .agent-copy-status {
   min-height: 16px;
 }
+
+.agent-setup-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 16px 0;
+}
+.agent-setup-tabs [aria-selected="true"] {
+  background: #ff965e;
+  color: #142027;
+  border-color: #ff965e;
+}
+.agent-simple-setup {
+  display: grid;
+  gap: 12px;
+}
+.agent-simple-setup textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 150px;
+  border: 1px solid #43515e;
+  border-radius: 8px;
+  background: #111b24;
+  color: #eef3f6;
+  padding: 12px;
+  font: 12px/1.5 monospace;
+}
+.agent-simple-setup small {
+  color: #a1b3bf;
+  line-height: 1.5;
+}

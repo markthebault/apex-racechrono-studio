@@ -65,6 +65,24 @@ try {
   await client.connect(transport);
   const connection = await json("apex_connection");
   await page.goto(connection.pairingUrl);
+  assert.equal(
+    await page
+      .getByRole("tab", { name: "Simple", exact: true })
+      .getAttribute("aria-selected"),
+    "true",
+  );
+  const setupPrompt = await page
+    .getByLabel("Agent setup prompt", { exact: true })
+    .inputValue();
+  assert.match(setupPrompt, /mcp\/server\.mjs/);
+  assert.match(setupPrompt, /apex_connection/);
+  assert.match(setupPrompt, /connected=true/);
+  assert(!setupPrompt.includes("#apex-agent="));
+  assert(!setupPrompt.includes(connection.pairingUrl.split(":").at(-1)));
+  await page
+    .getByRole("button", { name: "Copy setup prompt", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Advanced", exact: true }).click();
   await page
     .getByText("How to connect · 3 simple steps", { exact: true })
     .click();
@@ -468,6 +486,7 @@ try {
     .getByRole("button", { name: "Agent connected", exact: true })
     .first()
     .click();
+  await page.getByRole("tab", { name: "Advanced", exact: true }).click();
   await page.getByLabel("Share linked video frames").check();
   const missingVideo = await client.callTool({
     name: "apex_video_frames",
@@ -490,6 +509,129 @@ try {
   assert.match(
     await page.locator(".agent-pill").first().innerText(),
     /MCP enabled · Waiting/,
+  );
+  // UI preferences survive navigation, component remounts and a browser refresh.
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  const menu = page.getByRole("navigation", { name: "Workspace views" });
+  await menu
+    .getByRole("button", { name: "Race Engineer", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Turns", exact: true }).click();
+  await page.getByLabel("Turn", { exact: true }).selectOption("T2");
+  const pass = page
+    .locator(".corner-pass")
+    .filter({ hasNotText: "· review" })
+    .last();
+  await pass.click();
+  const selectedPassText = await page
+    .locator('.corner-pass[aria-pressed="true"]')
+    .innerText();
+  await menu.getByRole("button", { name: "Sessions", exact: true }).click();
+  await menu
+    .getByRole("button", { name: "Race Engineer", exact: true })
+    .click();
+  await page.getByLabel("Turn", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByLabel("Turn", { exact: true }).inputValue(),
+    "T2",
+  );
+  assert.equal(
+    await page.locator('.corner-pass[aria-pressed="true"]').innerText(),
+    selectedPassText,
+  );
+  await page
+    .getByRole("button", { name: "Session debrief", exact: true })
+    .click();
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Session debrief", exact: true })
+    .waitFor();
+  assert.equal(
+    await menu
+      .getByRole("button", { name: "Race Engineer", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
+  assert.match(
+    await page
+      .getByRole("button", { name: "Session debrief", exact: true })
+      .getAttribute("class"),
+    /active/,
+  );
+  await page.getByRole("button", { name: "Turns", exact: true }).click();
+  await page.getByLabel("Turn", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByLabel("Turn", { exact: true }).inputValue(),
+    "T2",
+  );
+  assert.equal(
+    await page.locator('.corner-pass[aria-pressed="true"]').innerText(),
+    selectedPassText,
+  );
+  await page
+    .getByRole("button", { name: "Section analysis", exact: true })
+    .click();
+  await page
+    .getByLabel("Section", { exact: true })
+    .selectOption(secondSection.id);
+  await page
+    .getByRole("button", { name: "Turn analysis", exact: true })
+    .click();
+  await page.getByLabel("Turn", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByLabel("Turn", { exact: true }).inputValue(),
+    "T2",
+  );
+  await page
+    .getByRole("button", { name: "Section analysis", exact: true })
+    .click();
+  await page.getByLabel("Section", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByLabel("Section", { exact: true }).inputValue(),
+    secondSection.id,
+  );
+  await menu.getByRole("button", { name: "Analyze", exact: true }).click();
+  await page.getByRole("button", { name: "Focus T2", exact: true }).click();
+  await menu.getByRole("button", { name: "Sessions", exact: true }).click();
+  await page.reload();
+  await page.getByRole("heading", { name: "Sessions", exact: true }).waitFor();
+  assert.equal(
+    await menu
+      .getByRole("button", { name: "Sessions", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
+  await menu.getByRole("button", { name: "Analyze", exact: true }).click();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Focus T2", exact: true })
+      .getAttribute("aria-pressed"),
+    "true",
+  );
+  await page.reload();
+  await page.getByRole("button", { name: "Focus T2", exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Focus T2", exact: true })
+      .getAttribute("aria-pressed"),
+    "true",
+  );
+  // Dialog always opens Simple; no secret or live connection is restored.
+  await page
+    .getByRole("button", { name: "Connect AI agent", exact: true })
+    .first()
+    .click();
+  assert.equal(
+    await page
+      .getByRole("tab", { name: "Simple", exact: true })
+      .getAttribute("aria-selected"),
+    "true",
+  );
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Connect agent", exact: true })
+      .isDisabled(),
+    true,
   );
   assert.deepEqual(inferenceRequests, []);
   assert.deepEqual(errors, []);
