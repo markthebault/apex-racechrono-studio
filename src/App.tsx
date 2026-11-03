@@ -1368,16 +1368,18 @@ export default function App() {
         </button>
       </aside>
       <main>
-        <div className="mobile-workspace-bar">
-          <TouchButton
-            onClick={() => setMenuOpen(true)}
-            aria-haspopup="dialog"
-            aria-expanded={menuOpen}
-          >
-            <Menu size={20} /> Tracks & sessions
-          </TouchButton>
-          <span>{tab}</span>
-        </div>
+        {!(compactAnalysis && tab === "Analyze" && a) && (
+          <div className="mobile-workspace-bar">
+            <TouchButton
+              onClick={() => setMenuOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={menuOpen}
+            >
+              <Menu size={20} /> Tracks & sessions
+            </TouchButton>
+            <span>{tab}</span>
+          </div>
+        )}
         <header>
           <div className="breadcrumb">
             Workspace <ChevronRight size={13} /> {sa?.track || "Track analysis"}{" "}
@@ -1651,6 +1653,8 @@ export default function App() {
                       onSettings={patch}
                       onView={setMobileView}
                       onFullTools={() => setFullAnalysisTools(true)}
+                      onOpenMenu={() => setMenuOpen(true)}
+                      menuOpen={menuOpen}
                       cursor={cursor}
                       range={range}
                       elapsed={elapsed}
