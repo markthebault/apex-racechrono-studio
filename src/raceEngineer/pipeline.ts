@@ -1,3 +1,4 @@
+import { detectTurns } from "../turns";
 import { forceAxes } from "./gforces";
 import { sha256 } from "hash-wasm";
 import type { Session, Trace } from "../model";
@@ -395,8 +396,16 @@ export async function buildSnapshot(input: AnalysisInput): Promise<Snapshot> {
     sessions.map((s) => [s.id, normalize(s, settings.mappings[s.id] ?? [])]),
   );
   const corners = validateCorners(
-    settings.corners[reference.id] ??
-      detectCorners(reference, physicalCurvature(reference)),
+    settings.reviewMode === "turns"
+      ? detectTurns(reference).map((t) => ({
+          id: t.id,
+          name: t.label,
+          start: t.start,
+          end: t.end,
+          direction: t.direction,
+        }))
+      : (settings.corners[reference.id] ??
+          detectCorners(reference, physicalCurvature(reference))),
     reference.length,
   );
   const forces = new Map(
@@ -505,6 +514,7 @@ export async function buildSnapshot(input: AnalysisInput): Promise<Snapshot> {
     algorithm: ALGORITHM,
     id,
     referenceId: reference.id,
+    reviewMode: settings.reviewMode,
     sessionIds: sessions.map((s) => s.id),
     contexts: Object.fromEntries(
       sessions.map((s) => [s.id, contextFor(s, settings)]),
@@ -533,7 +543,9 @@ export async function buildSnapshot(input: AnalysisInput): Promise<Snapshot> {
     warnings: [
       "Unknown conditions remain unknown; selected recordings do not establish ultimate tire grip.",
       "Coaching exclusions do not change existing best-sector eligibility.",
-      "Automatically detected review windows are at most 400 m and may divide a bend or contain several bends. They are not surveyed corners or apexes; verify the map before interpreting technique.",
+      settings.reviewMode === "turns"
+        ? "Automatically detected GPS turns match Analyze on this reference lap. Turn IDs are not official circuit numbers or verified apexes; verify the map before interpreting technique."
+        : "Automatically detected review windows are at most 400 m and may divide a bend or contain several bends. They are not surveyed corners or apexes; verify the map before interpreting technique.",
       ...(!contextKnown && sessions.length > 1
         ? [
             "Unknown vehicle/setup/tires/conditions: other recordings remain visible as evidence but are excluded from ranked coaching and envelope fitting until context is verified.",
@@ -697,6 +709,7 @@ export async function snapshotKey(input: AnalysisInput): Promise<string> {
     mappings: settings.mappings,
     corners: settings.corners,
     crossDay: settings.crossDay,
+    reviewMode: settings.reviewMode,
     modelState: input.modelState,
   };
   return sha256(JSON.stringify(fingerprint));

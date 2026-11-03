@@ -4,6 +4,17 @@ Open **Race Engineer** after importing timed RCZ/VBO sessions. Select the lap to
 
 This is a telemetry-first implementation. Optional synchronized video frame extraction is available through MCP; camera perspective and calibration limit visual interpretation. Harry's LapTimer `.hlptrl` files are not supported by the importer.
 
+## Turns or sections
+
+Use **Turn analysis / Section analysis** at the top of Race Engineer.
+
+- **Turn analysis** reviews the same **T1, T2, …** detected bends shown in Analyze. Each turn gets its own top-three pass ranking, map, speed/G traces and AI review. It uses Analyze's reference lap so the numbers match; change the Analyze reference to change that catalogue. These are automatic GPS labels, not official circuit numbers or verified apexes.
+- **Section analysis** keeps the broader comparison windows, which can contain several bends. Choose a review lap and edit section boundaries under **Laps & context**. Section edits are retained when switching back from turns.
+
+The switch applies to both individual reviews and session debriefs. It rebuilds evidence and clears pending agent requests. Advice is saved separately for each snapshot, so a section report cannot appear as advice for T1. New workspaces start with turn analysis; the selected mode is saved with project settings.
+
+MCP exposes `reviewMode` and `reviewRegions` in `apex_engineer_context`. In turn mode the region IDs are the same T IDs as `apex_turns`; in section mode `numberedTurns.sections` maps review windows to T IDs. Use the current snapshot ID for every query and report.
+
 ## Review with your MCP agent
 
 Race Engineer uses your local MCP agent for AI advice. Apex has no LLM credential form and makes no direct inference requests. Previously remembered provider credentials are removed when Race Engineer opens; saved structured reports remain available.
@@ -26,7 +37,7 @@ Advanced tools retain portable packet export and manual report import. The previ
 - Raw channel data remains unchanged. Speed normalizes to m/s, acceleration to m/s², pressure to bar; display speed follows km/h or mph. Throttle angle, accelerator pedal, brake pressure/position/switch and individual wheel identities remain distinct.
 - Derived acceleration uses centered native-speed local linear regression over 0.6 s, with at least three points and at least 0.2 s of support on each side. Coarse sampling above 500 ms and unsupported gaps/edges return unavailable values. Measured acceleration remains separate.
 - Geometry uses physical GPS arc length retained as `Trace.rawDistance`; aligned `Trace.distance` remains the existing chart reference progress. Curvature uses a local metric three-point circle over approximately ±12 m, rejects GPS gaps/jumps and stationary windows, and never uses aligned reference progress as physical arc length.
-- Corner regions are shared by all laps in a snapshot. The detector groups nearby turning regions into complexes; manual corrections are expected for ambiguous layouts. Minimum speed does not establish a geometric apex; speed-derived deceleration is not measured pedal application.
+- Review regions are shared by all laps in a snapshot. Turn mode uses the Analyze bend detector; section mode groups nearby turning regions into broader complexes and supports manual boundary corrections. Minimum speed does not establish a geometric apex; speed-derived deceleration is not measured pedal application.
 - Window entry/minimum/exit speed and elapsed time use consistent reference distances. Native brake pressure/position is not normalized across laps. A valid zero brake channel yields zero recorded actuation; it never triggers a pedal inference from speed. The initial pressure-release metric is a 90%-to-10% decrease after the window maximum and requires a verified channel at 10 Hz or better; it does not diagnose trail braking, ABS or wheel lockup.
 - Priorities compare recorded non-overlapping corner windows. Time differences remain observed differences; potential gains are nullable and are not manufactured. Supporting and contrary windows remain referenced. Rank also accounts for supporting-lap count and contrary results. No automatic lap-validity edits occur.
 - Envelope estimates use one-second blocks, 10 m/s bins and a 90th percentile, requiring at least five supporting blocks from two distinct laps **per axis**. With four supporting laps, the last is held out from fitting and longitudinal disagreement is reported. Confidence remains low/medium, never a tire-grip guarantee. Left/right axes have separate support. The simplified combined-grip ellipse is a modeling assumption, not a fitted tire model.
@@ -94,7 +105,7 @@ Run standard checks with `npm test` and `npm run build`. Private tests read `APE
 
 ## Interpretation and saved advice
 
-A structured review may include a short summary even when no pattern is supported. Evidence references validate scope, not the truth of an explanation. Automatically detected review windows are at most 400 m and may divide a bend or contain several bends. Inspect the map and adjust the windows before drawing technique conclusions.
+A structured review may include a short summary even when no pattern is supported. Evidence references validate scope, not the truth of an explanation. In section mode, automatically detected review windows are at most 400 m and may divide a bend or contain several bends. Turn mode uses individual detected bends, without that window length limit. Inspect the map before drawing technique conclusions.
 
 Separate recordings with incomplete vehicle, setup, tires or condition context remain visible in measurements but do not contribute to ranked coaching or envelope fitting alongside the reference recording. Matching, known context enables pooling. Coaching filters do not change optimal-lap sector eligibility.
 
@@ -126,4 +137,4 @@ Analyze detects GPS bends on its reference lap and labels them **T1, T2, …** i
 
 Turn IDs are local to the reference lap and can change when the reference or track scope changes. They are not official circuit numbers, surveyed corners or verified geometric apexes. Gentle, noisy or closely connected bends may be omitted or grouped. Detection does not change timing gates, theoretical-lap sectors or coaching eligibility.
 
-Race Engineer still uses its existing review windows. Those can split or combine turns, so their section names are retained. Its corner headings show the overlapping Analyze turn labels. MCP `apex_turns` returns the reference ID, distance bounds, direction and current selection; `apex_state` includes the same catalogue. `apex_view` accepts `turnId` to focus a turn (use a separate command when changing laps). `apex_engineer_context` maps its review sections onto the Analyze reference before returning their overlapping turn IDs; incompatible alignment returns no section mapping.
+Race Engineer offers a Turn / Section analysis switch. Turn analysis uses these same T IDs and the Analyze reference lap. Section analysis retains its broader windows and shows the overlapping Analyze turn labels. MCP `apex_turns` returns the reference ID, distance bounds, direction and current selection; `apex_state` includes the same catalogue. `apex_view` accepts `turnId` to focus a turn (use a separate command when changing laps). `apex_engineer_context` maps its review sections onto the Analyze reference before returning their overlapping turn IDs; incompatible alignment returns no section mapping.

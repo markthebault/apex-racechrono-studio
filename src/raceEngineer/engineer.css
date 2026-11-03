@@ -2181,3 +2181,25 @@
   padding-top: 20px;
   border-top: 1px solid var(--lab-line);
 }
+
+.engineer-mode-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--review-border);
+  border-radius: 12px;
+}
+.engineer-mode-switch button {
+  margin: 0;
+  border-color: transparent;
+  background: transparent;
+}
+.engineer-mode-switch button[aria-pressed="true"] {
+  background: var(--review-orange);
+  color: #142027;
+}
+.engineer-mode p {
+  margin-bottom: 0;
+  color: var(--review-muted);
+}

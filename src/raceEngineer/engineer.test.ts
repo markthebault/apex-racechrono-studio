@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { trace, align } from "../analysis";
+import { detectTurns } from "../turns";
 import type { Session, Channel } from "../model";
 import {
   G,
@@ -229,6 +230,61 @@ describe("engineering signal contracts", () => {
   });
 });
 describe("snapshots, evidence and access controls", () => {
+  it("reviews the Analyze turn catalogue instead of padded sections, ignoring section overrides", async () => {
+    const i = input();
+    const ref = trace(i.sessions[0], i.sessions[0].laps[0]);
+    const sections = await buildSnapshot(i);
+    i.settings.corners[ref.id] = [
+      {
+        id: "custom",
+        name: "Custom section",
+        start: 0,
+        end: 100,
+        direction: "left",
+      },
+    ];
+    i.settings.reviewMode = "turns";
+    const turns = await buildSnapshot(i);
+    expect(turns.reviewMode).toBe("turns");
+    expect(turns.corners).toEqual(
+      detectTurns(ref).map((t) => ({
+        id: t.id,
+        name: t.label,
+        start: t.start,
+        end: t.end,
+        direction: t.direction,
+      })),
+    );
+    expect(turns.corners.length).toBeGreaterThan(0);
+    expect(turns.corners.length).toBeLessThan(sections.corners.length);
+    expect(
+      turns.evidence.every((e) =>
+        turns.corners.some((c) => c.id === e.cornerId),
+      ),
+    ).toBe(true);
+    const service = new AnalysisService(turns, i.sessions, i.settings);
+    service.grant();
+    expect(
+      await service.query("summary", { snapshotId: turns.id }),
+    ).toMatchObject({ reviewMode: "turns" });
+    await expect(
+      service.query("summary", { snapshotId: sections.id }),
+    ).rejects.toThrow("stale_snapshot");
+    i.settings.reviewMode = "sections";
+    const restored = await buildSnapshot(i);
+    expect(restored.corners[0].id).toBe("custom");
+    expect(restored.id).not.toBe(turns.id);
+    service.dispose();
+  });
+  it("validates and preserves the analysis mode with backwards-compatible section settings", () => {
+    expect(validateSettings(emptySettings()).reviewMode).toBe("sections");
+    expect(
+      validateSettings({ ...emptySettings(), reviewMode: "turns" }).reviewMode,
+    ).toBe("turns");
+    expect(() =>
+      validateSettings({ ...emptySettings(), reviewMode: "invalid" }),
+    ).toThrow();
+  });
   it("bounds connected turning regions without presenting distance windows as individual corners", () => {
     const s = synthetic({ duration: 200 });
     const ref = trace(s, s.laps[0]);

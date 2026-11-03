@@ -196,6 +196,17 @@ try {
     turnCatalogue.turns.map((t) => t.id),
   );
   assert(engineer.numberedTurns.sections.some((s) => s.turnIds.length));
+  assert.equal(engineer.reviewMode, "turns");
+  assert.equal(engineer.referenceId, turnCatalogue.referenceId);
+  assert.deepEqual(
+    engineer.reviewRegions.map((c) => c.id),
+    turnCatalogue.turns.map((t) => t.id),
+  );
+  assert(
+    engineer.numberedTurns.sections.every(
+      (s) => s.turnIds.length === 1 && s.turnIds[0] === s.cornerId,
+    ),
+  );
   assert(engineer.request?.id);
   assert(engineer.reportSchema);
   const passes = await json("apex_corner_review", {
@@ -274,7 +285,7 @@ try {
     report: sessionReport,
   });
   await page.getByText("MCP session review saved", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Corners", exact: true }).click();
+  await page.getByRole("button", { name: "Turns", exact: true }).click();
   await page.reload();
   await page
     .getByRole("button", { name: "Race Engineer", exact: true })
@@ -292,6 +303,51 @@ try {
     .click();
   await page.locator(".agent-pill.is-connected").first().waitFor();
   await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Race Engineer", exact: true })
+    .click();
+  // Mode changes rebuild evidence and isolate advice/request scopes.
+  await page
+    .getByRole("button", { name: "Refresh corner advice", exact: true })
+    .click();
+  const oldTurnRequest = await json("apex_engineer_context");
+  await page
+    .getByRole("button", { name: "Section analysis", exact: true })
+    .click();
+  await page.getByLabel("Section", { exact: true }).waitFor();
+  const sectionContext = await json("apex_engineer_context");
+  assert.equal(sectionContext.reviewMode, "sections");
+  assert.notEqual(sectionContext.snapshotId, oldTurnRequest.snapshotId);
+  assert(sectionContext.reviewRegions.every((c) => !/^T\d+$/.test(c.id)));
+  assert.equal(sectionContext.request, null);
+  assert(
+    (
+      await client.callTool({
+        name: "apex_engineer_report",
+        arguments: { requestId: oldTurnRequest.request.id, report: advice },
+      })
+    ).isError,
+  );
+  assert.equal(
+    await page
+      .getByText(
+        "Use a comfortable existing reference and review repeatability with your instructor.",
+        { exact: true },
+      )
+      .count(),
+    0,
+  );
+  await page
+    .getByRole("button", { name: "Turn analysis", exact: true })
+    .click();
+  await page.getByLabel("Turn", { exact: true }).waitFor();
+  assert.equal((await json("apex_engineer_context")).reviewMode, "turns");
+  await page
+    .getByText(
+      "Use a comfortable existing reference and review repeatability with your instructor.",
+      { exact: true },
+    )
+    .waitFor();
   // Exercise the actual browser decoder with a generated two-second clip.
   const videoTest = await page.evaluate(async () => {
     const { captureFrames } = await import("/src/agent/video.ts");
@@ -381,6 +437,16 @@ try {
       tools: definitions.tools.length,
     }),
   );
+} catch (error) {
+  await mkdir("evidence", { recursive: true });
+  await page
+    .screenshot({ path: "evidence/mcp-failure.png", fullPage: true })
+    .catch(() => {});
+  await writeFile(
+    "evidence/mcp-failure.txt",
+    await page.locator("body").innerText(),
+  ).catch(() => {});
+  throw error;
 } finally {
   await browser.close();
   await client.close();

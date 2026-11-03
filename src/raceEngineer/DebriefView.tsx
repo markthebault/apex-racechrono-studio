@@ -168,7 +168,12 @@ export function DebriefPreview({
         <div className="debrief-readiness">
           <span>{snapshot.laps.length} selected laps</span>
           <span>{overview.referenceClean.length} clean lap times</span>
-          <span>{snapshot.corners.length} review sections</span>
+          <span>
+            {snapshot.corners.length}{" "}
+            {snapshot.reviewMode === "turns"
+              ? "detected turns"
+              : "review sections"}
+          </span>
         </div>
       </div>
       <PaceChart snapshot={snapshot} sessions={sessions} />

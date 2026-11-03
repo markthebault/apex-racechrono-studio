@@ -81,6 +81,8 @@ export function engineerContext() {
     numberedTurns: engineerTurnLinks(r.snapshot, r.sessions),
     snapshotId: r.snapshot.id,
     referenceId: r.snapshot.referenceId,
+    reviewMode: r.snapshot.reviewMode ?? "sections",
+    reviewRegions: r.snapshot.corners,
     lapIds: r.snapshot.laps.map((l) => l.id),
     request: r.request ?? null,
     instructions:
