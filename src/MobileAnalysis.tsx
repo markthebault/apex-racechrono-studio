@@ -15,7 +15,7 @@ import {
 import { videoTime } from "./storage";
 import { useStoredView, viewBoolean } from "./viewState";
 import type { DetectedTurn } from "./turns";
-import type { ChartInteraction } from "./mobileAnalysis";
+import { useTimelineTouch, type ChartInteraction } from "./mobileAnalysis";
 import "./mobileAnalysis.css";
 
 function useSize() {
@@ -178,11 +178,7 @@ export function MobileAnalysis({
   trackName: string;
 }) {
   const connection = useAgentConnection();
-  const [interaction, setInteraction] = useStoredView<ChartInteraction>(
-    "mobile-gesture",
-    "scrub",
-    (v): v is ChartInteraction => ["scrub", "pan", "range"].includes(String(v)),
-  );
+  const interaction = "scrub" as const;
   const [split, setSplit] = useStoredView(
     "mobile-split",
     42,
@@ -246,6 +242,12 @@ export function MobileAnalysis({
   const b = others[0]?.trace;
   const name = (t?: Trace) => (t ? `Lap ${t.lap.number}` : "Compare lap");
   const scrub = (d: number) => onCursor(Math.max(0, Math.min(a.length, d)));
+  useTimelineTouch(chartBox.ref, {
+    range,
+    length: a.length,
+    onCursor: scrub,
+    onRange,
+  });
   const resizeAt = (x: number, y: number) => {
     const box = stage.current!.getBoundingClientRect();
     const horizontal = window.matchMedia(
@@ -416,29 +418,9 @@ export function MobileAnalysis({
         </div>
         <div className="ma-telemetry">
           <div className="ma-chart-tools">
-            <div role="group" aria-label="Chart gesture">
-              {(["scrub", "pan", "range"] as const).map((m) => (
-                <TouchButton
-                  key={m}
-                  aria-pressed={m === interaction}
-                  onClick={() => setInteraction(m)}
-                >
-                  {m === "range" ? "Zoom" : m === "scrub" ? "Scrub" : "Pan"}
-                </TouchButton>
-              ))}
-            </div>
-            <TouchButton
-              aria-label="Zoom telemetry in"
-              onClick={() => onRange(zoomRange(range, cursor, 0.6, a.length))}
-            >
-              ＋
-            </TouchButton>
-            <TouchButton
-              aria-label="Zoom telemetry out"
-              onClick={() => onRange(zoomRange(range, cursor, 1.7, a.length))}
-            >
-              −
-            </TouchButton>
+            <small className="ma-gesture-hint">
+              1 finger: scrub · 2: pan / zoom
+            </small>
             <TouchButton
               aria-label="Reset telemetry zoom"
               onClick={() => onFocusTurn(null)}
@@ -702,10 +684,24 @@ export function MobileAnalysis({
               saved.
             </p>
             <p>
-              Scrub moves the cars and linked videos. Pan moves the timeline
-              without changing its scale. Zoom deliberately selects a distance
-              range. Swipe vertically to scroll channels.
+              Drag horizontally with one finger to move the cars and linked
+              videos. Use two fingers to move the timeline or pinch to zoom.
+              Swipe vertically with one finger to scroll channels.
             </p>
+            <div role="group" aria-label="Alternative telemetry zoom controls">
+              <TouchButton
+                aria-label="Zoom telemetry in"
+                onClick={() => onRange(zoomRange(range, cursor, 0.6, a.length))}
+              >
+                Zoom in
+              </TouchButton>
+              <TouchButton
+                aria-label="Zoom telemetry out"
+                onClick={() => onRange(zoomRange(range, cursor, 1.7, a.length))}
+              >
+                Zoom out
+              </TouchButton>
+            </div>
             <TouchButton onClick={onFullTools}>
               Open full analysis tools
             </TouchButton>

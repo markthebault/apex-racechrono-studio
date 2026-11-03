@@ -115,15 +115,7 @@ async function swipe(page, from, to, steps = 18) {
   await cdp.detach();
   await wait(150);
 }
-async function chartSwipe(page, mode, fromFraction, toFraction) {
-  await page.getByRole("button", { name: mode, exact: true }).tap();
-  await page.waitForFunction(
-    (mode) =>
-      document
-        .querySelector(".mobile-analysis")
-        ?.getAttribute("data-interaction") === mode,
-    mode === "Zoom" ? "range" : mode.toLowerCase(),
-  );
+async function chartSwipe(page, fromFraction, toFraction) {
   const chart = page.locator(".ma-chart-stack canvas").first();
   await chart.scrollIntoViewIfNeeded();
   const r = await chart.boundingBox();
@@ -132,6 +124,90 @@ async function chartSwipe(page, mode, fromFraction, toFraction) {
     { x: r.x + 48 + (r.width - 63) * fromFraction, y: r.y + r.height * 0.4 },
     { x: r.x + 48 + (r.width - 63) * toFraction, y: r.y + r.height * 0.4 },
   );
+}
+// Chromium sends native emulated multi-touch. Linux WebKit has no multi-touch
+// driver: synthetic TouchEvents exercise the same listeners and state only.
+async function twoFinger(
+  page,
+  gapFrom,
+  gapTo,
+  shift = 0,
+  crossRows = false,
+  cancel = false,
+) {
+  const chart = page.locator(".ma-chart-stack canvas").first();
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox();
+  const width = box.width - 63;
+  const x = box.x + 48 + width * 0.5;
+  const y = box.y + box.height * 0.4;
+  const other = crossRows
+    ? await page.locator(".ma-chart-stack canvas").nth(1).boundingBox()
+    : null;
+  const secondY = other ? other.y + other.height * 0.4 : y;
+  const cdp =
+    engine !== "webkit" ? await page.context().newCDPSession(page) : null;
+  let previous = [];
+  const dispatch = async (type, points) => {
+    if (cdp)
+      await cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
+    else
+      await page.evaluate(
+        ({ type, points, previous }) => {
+          const name = type.toLowerCase();
+          const canvas = document.querySelector(".ma-chart-stack canvas");
+          const make = (p) => ({
+            ...p,
+            identifier: p.id,
+            clientX: p.x,
+            clientY: p.y,
+            target: canvas,
+          });
+          const e = new Event(name, { bubbles: true, cancelable: true });
+          const changed =
+            name === "touchend" || name === "touchcancel"
+              ? previous.filter((p) => !points.some((t) => t.id === p.id))
+              : points;
+          Object.defineProperties(e, {
+            touches: { value: points.map(make) },
+            changedTouches: { value: changed.map(make) },
+          });
+          canvas.dispatchEvent(e);
+        },
+        { type, points, previous },
+      );
+    previous = points;
+  };
+  const point = (id, x, y) => ({ id, x, y, radiusX: 5, radiusY: 5, force: 1 });
+  const points = (progress) => {
+    const gap = width * (gapFrom + (gapTo - gapFrom) * progress);
+    const mid = x + width * shift * progress;
+    return [point(1, mid - gap / 2, y), point(2, mid + gap / 2, secondY)];
+  };
+  await dispatch("touchStart", points(0).slice(0, 1));
+  await dispatch("touchStart", points(0));
+  for (let i = 1; i <= 18; i++) {
+    await dispatch("touchMove", points(i / 18));
+    await wait(18);
+  }
+  const beforeLift = await state(page);
+  if (cancel) await dispatch("touchCancel", []);
+  else {
+    // Lifting just one finger must not hand the gesture over to scrubbing.
+    const remaining = points(1).slice(0, 1);
+    await dispatch("touchEnd", remaining);
+    remaining[0].x += 25;
+    await dispatch("touchMove", remaining);
+    await dispatch("touchEnd", []);
+    await wait(150);
+    assert.deepEqual(
+      await state(page),
+      beforeLift,
+      "Remaining finger cannot scrub after a pinch",
+    );
+  }
+  if (cdp) await cdp.detach();
+  await wait(150);
 }
 async function bounds(page) {
   return page.evaluate(() => {
@@ -275,7 +351,7 @@ try {
       .getByRole("button", { name: "Play playback", exact: true })
       .waitFor();
     const before = await state(page);
-    await chartSwipe(page, "Scrub", 0.15, 0.72);
+    await chartSwipe(page, 0.15, 0.72);
     const scrubbed = await state(page);
     assert(
       Math.abs(scrubbed.cursor - before.cursor) > 50,
@@ -286,13 +362,13 @@ try {
       before.range,
       `${name}: scrub must not zoom`,
     );
-    await chartSwipe(page, "Zoom", 0.25, 0.7);
+    await twoFinger(page, 0.2, 0.65);
     const zoomed = await state(page);
     assert(
       zoomed.range[1] - zoomed.range[0] < before.range[1] - before.range[0],
       `${name}: deliberate zoom`,
     );
-    await chartSwipe(page, "Pan", 0.6, 0.35);
+    await twoFinger(page, 0.35, 0.35, -0.15);
     const panned = await state(page);
     assert(
       Math.abs(
@@ -304,6 +380,45 @@ try {
       Math.abs(panned.range[0] - zoomed.range[0]) > 5,
       `${name}: pan moves range`,
     );
+    assert.equal(
+      panned.cursor,
+      scrubbed.cursor,
+      "Two fingers change the view, not the playhead",
+    );
+    assert.equal(
+      await page.evaluate(() => visualViewport.scale),
+      1,
+      "Pinch zooms telemetry, not the page",
+    );
+    assert.equal(
+      await page.getByRole("group", { name: "Chart gesture" }).count(),
+      0,
+      "No gesture mode buttons",
+    );
+    if (name === "phone") {
+      await twoFinger(page, 0.2, 0.55, -0.06, true);
+      const combined = await state(page);
+      assert(
+        combined.range[1] - combined.range[0] <
+          panned.range[1] - panned.range[0],
+        "Pinch also works across chart rows",
+      );
+      assert.equal(combined.cursor, panned.cursor);
+      await twoFinger(page, 0.6, 0.2, 0, false, true);
+      const cancelled = await state(page);
+      assert(
+        cancelled.range[1] - cancelled.range[0] >
+          combined.range[1] - combined.range[0],
+        "Pinching inward zooms out",
+      );
+      await chartSwipe(page, 0.1, 0.85);
+      assert.notEqual(
+        (await state(page)).cursor,
+        cancelled.cursor,
+        "Scrub works after touch cancellation",
+      );
+      await page.getByRole("button", { name: "Reset telemetry zoom" }).tap();
+    }
     assert.equal(
       await page.locator(".map-legend").count(),
       0,
@@ -324,19 +439,33 @@ try {
       .tap();
     assert.equal(await page.locator("dialog[open]").count(), 0);
     await page.getByLabel("Focus turn", { exact: true }).selectOption("T3");
-    await chartSwipe(page, "Scrub", 0.35, 0.55);
+    await chartSwipe(page, 0.35, 0.55);
     assert.equal(
       await page.getByLabel("Focus turn", { exact: true }).inputValue(),
       "T3",
       "Scrubbing retains the selected turn",
     );
-    await page.getByRole("button", { name: "Scrub", exact: true }).tap();
     await page.reload();
     await page.locator('.mobile-analysis[data-interaction="scrub"]').waitFor();
     assert.equal(
       await page.getByLabel("Focus turn", { exact: true }).inputValue(),
       "T3",
     );
+    // The map throttles range fitting; wait for the selected turn rather than
+    // capturing its temporary initial map center immediately after refresh.
+    await page.waitForFunction(() => {
+      const marker = document.querySelector(".turn-marker.selected");
+      const map = document.querySelector(".ma-map-box");
+      if (!marker || !map) return false;
+      const a = marker.getBoundingClientRect(),
+        b = map.getBoundingClientRect();
+      return (
+        a.left < b.right &&
+        a.right > b.left &&
+        a.top < b.bottom &&
+        a.bottom > b.top
+      );
+    });
     await snapshot(page, name);
     if (name === "phone") {
       // Extra channels scroll inside telemetry; a vertical swipe must not zoom.
@@ -509,8 +638,8 @@ try {
     await caption("Apex mobile • track and telemetry stay together");
     await wait(1000);
     await caption("Scrub: drag a trace to move the cars — no accidental zoom");
-    await chartSwipe(page, "Scrub", 0.1, 0.75);
-    await chartSwipe(page, "Scrub", 0.75, 0.35);
+    await chartSwipe(page, 0.1, 0.75);
+    await chartSwipe(page, 0.75, 0.35);
     await wait(700);
     await caption("Compare laps without scrolling back to the top");
     await page.getByRole("button", { name: "Choose lap B", exact: true }).tap();
@@ -527,12 +656,12 @@ try {
     await page.getByLabel("Focus turn", { exact: true }).selectOption("T3");
     await wait(1000);
     await page.getByRole("button", { name: "Follow car", exact: true }).tap();
-    await chartSwipe(page, "Scrub", 0.2, 0.8);
+    await chartSwipe(page, 0.2, 0.8);
     await wait(800);
-    await caption("Zoom is explicit. Pan moves the window at the same scale.");
-    await chartSwipe(page, "Zoom", 0.25, 0.75);
+    await caption("Pinch with two fingers to zoom. Slide both fingers to pan.");
+    await twoFinger(page, 0.2, 0.65);
     await wait(700);
-    await chartSwipe(page, "Pan", 0.6, 0.3);
+    await twoFinger(page, 0.35, 0.35, -0.15);
     await wait(700);
     await caption("Play both laps together, or scrub to any position");
     await page
@@ -558,7 +687,6 @@ try {
     await page.getByRole("button", { name: "Choose telemetry channels" }).tap();
     await wait(1600);
     await page.getByRole("button", { name: "Done", exact: true }).tap();
-    await page.getByRole("button", { name: "Scrub", exact: true }).tap();
     await caption("Local preview • not deployed");
     await wait(1600);
     await page.evaluate(() =>

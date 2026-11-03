@@ -556,7 +556,7 @@ export function Chart({
         </small>
       )}
       <canvas
-        aria-label={`${config.channels.join(", ")} telemetry chart. ${compact ? `${interaction === "range" ? "Zoom" : interaction} mode. Drag horizontally; swipe vertically to scroll channels.` : "Hover to preview values, click to move the cursor, drag to zoom."}`}
+        aria-label={`${config.channels.join(", ")} telemetry chart. ${compact ? `One finger scrubs; two fingers pan or pinch to zoom. Swipe vertically with one finger to scroll channels.` : "Hover to preview values, click to move the cursor, drag to zoom."}`}
         tabIndex={0}
         ref={canvas}
         style={{ height: config.height }}
@@ -577,6 +577,8 @@ export function Chart({
           }
         }}
         onPointerDown={(e) => {
+          // Compact touch input belongs to the stack's native multi-touch handler.
+          if (compact && e.pointerType === "touch") return;
           if (e.button !== 0 || !e.isPrimary) return;
           const d = position(e);
           start.current = {
@@ -601,6 +603,7 @@ export function Chart({
           }
         }}
         onPointerMove={(e) => {
+          if (compact && e.pointerType === "touch") return;
           const d = position(e),
             from = start.current;
           if (!from) {
@@ -659,6 +662,7 @@ export function Chart({
           hoverBus.set(null);
         }}
         onPointerUp={(e) => {
+          if (compact && e.pointerType === "touch") return;
           const from = start.current,
             end = position(e);
           start.current = null;

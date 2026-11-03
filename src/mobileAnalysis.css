@@ -288,9 +288,11 @@
   border-bottom: 1px solid #32454e;
   flex-shrink: 0;
 }
-.ma-chart-tools > div {
-  display: flex;
-  gap: 1px;
+.ma-gesture-hint {
+  flex: 1;
+  font-size: 10px;
+  color: #9cb4bc;
+  line-height: 1.3;
 }
 .ma-chart-tools button {
   min-width: 31px;
@@ -301,11 +303,6 @@
   background: transparent;
   color: #b6c9cf;
   border-radius: 6px;
-}
-.ma-chart-tools [aria-pressed="true"] {
-  background: #ff965e;
-  color: #17242b;
-  font-weight: 700;
 }
 .ma-chart-stack {
   flex: 1;
