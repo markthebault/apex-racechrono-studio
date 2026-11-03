@@ -1,3 +1,4 @@
+import { TouchButton } from "./TouchButton";
 import type { DetectedTurn } from "./turns";
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
@@ -55,7 +56,9 @@ export function TrackMap({
   height,
   onHeight,
   speedUnit = "km/h",
+  compact = false,
 }: {
+  compact?: boolean;
   a?: Trace;
   colors?: [string, string];
   others?: Comparison[];
@@ -71,6 +74,7 @@ export function TrackMap({
   onHeight: (h: number) => void;
   speedUnit?: "km/h" | "mph";
 }) {
+  const Button = compact ? TouchButton : "button";
   const el = useRef<HTMLDivElement>(null),
     map = useRef<L.Map | null>(null),
     layers = useRef<L.LayerGroup | null>(null),
@@ -81,6 +85,8 @@ export function TrackMap({
   const [viewMode, setViewMode] = useState<"range" | "free" | "follow">(
     "range",
   );
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [turnLabels, setTurnLabels] = useState(!compact);
   const changingView = useRef(false);
   const carPosition = a
     ? ([
@@ -251,6 +257,7 @@ export function TrackMap({
     group?.clearLayers();
     if (!group || !a) return;
     for (const turn of turns) {
+      if (compact && !turnLabels && turn.id !== selectedTurn) continue;
       const lat = interpolate(a.distance, a.lat, turn.position),
         lon = interpolate(a.distance, a.lon, turn.position);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
@@ -267,7 +274,7 @@ export function TrackMap({
         .on("click", () => latest.current.onTurn?.(turn.id))
         .addTo(group);
     }
-  }, [a, turns, selectedTurn]);
+  }, [a, turns, selectedTurn, compact, turnLabels]);
   // The view follows the zoom window. While the window scrolls during playback this runs
   // every few milliseconds, so refitting is limited to a few times a second.
   const fitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -387,14 +394,26 @@ export function TrackMap({
   }, [brakeMarkers]);
   const recorded = a ? brakeSignal(a).recorded : false;
   return (
-    <div className="map-shell" style={{ height }}>
+    <div
+      className={`map-shell ${compact ? "map-compact" : ""} ${optionsOpen ? "map-options-open" : ""}`}
+      style={{ height }}
+    >
+      {compact && (
+        <Button
+          className="map-options-toggle"
+          aria-expanded={optionsOpen}
+          onClick={() => setOptionsOpen(!optionsOpen)}
+        >
+          Layers
+        </Button>
+      )}
       <div ref={el} className="map" />
       <div className="map-tag">
         <span className="live-dot" /> GPS TRACE <span>OpenStreetMap</span>
       </div>
       {a && (
         <div className="map-camera-tools" role="group" aria-label="Map camera">
-          <button
+          <Button
             type="button"
             disabled={!hasCar}
             aria-pressed={viewMode === "follow"}
@@ -404,20 +423,30 @@ export function TrackMap({
             }
           >
             <Navigation size={16} aria-hidden="true" /> Follow car
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={!hasCar}
             title="Center and zoom in on lap A's car"
             onClick={zoomToCar}
           >
             <LocateFixed size={16} aria-hidden="true" /> Zoom to car
-          </button>
+          </Button>
         </div>
       )}
-      {a && (
+      {a && (!compact || optionsOpen) && (
         <div className="map-tools">
-          <button
+          {compact && (
+            <label>
+              <input
+                type="checkbox"
+                checked={turnLabels}
+                onChange={(e) => setTurnLabels(e.target.checked)}
+              />{" "}
+              Turn labels
+            </label>
+          )}
+          <Button
             type="button"
             aria-pressed={showBrake}
             disabled={!recorded && !a.channels.acceleration}
@@ -430,7 +459,7 @@ export function TrackMap({
           >
             <i className="brake" />
             Braking zones
-          </button>
+          </Button>
           {showBrake && (
             <div className="scale">
               <div className="brake-ramp" />
@@ -441,7 +470,7 @@ export function TrackMap({
               </span>
             </div>
           )}
-          <button
+          <Button
             type="button"
             aria-pressed={showSpeed}
             disabled={!a.channels.speed}
@@ -450,7 +479,7 @@ export function TrackMap({
           >
             <i className="speed" />
             Speed colours
-          </button>
+          </Button>
           {showSpeed && (
             <div className="scale">
               <div className="speed-ramp" />
@@ -464,7 +493,7 @@ export function TrackMap({
           )}
         </div>
       )}
-      {a && (
+      {a && (!compact || optionsOpen) && (
         <div className="map-legend">
           {[
             [a, colors[0], "A"] as const,

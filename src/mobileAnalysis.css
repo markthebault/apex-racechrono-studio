@@ -1,0 +1,634 @@
+/* A bounded analysis workspace on touch screens. Setup/library screens retain
+   normal document scrolling. Dynamic viewport units follow Safari's toolbars. */
+.mobile-analysis-active {
+  height: 100dvh;
+  overflow: hidden;
+}
+.mobile-analysis-active .sidebar {
+  display: none;
+}
+.mobile-analysis-active main {
+  margin: 0;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mobile-analysis-active .mobile-workspace-bar {
+  display: flex;
+  position: relative;
+  top: auto;
+  min-height: 48px;
+  height: 48px;
+  padding: 4px 12px;
+  flex-shrink: 0;
+  z-index: 600;
+}
+.mobile-analysis-active .mobile-workspace-bar button {
+  min-height: 40px;
+}
+.app.mobile-analysis-active main > header {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  position: static;
+}
+.mobile-analysis-active main > header > :not(.header-actions),
+.mobile-analysis-active .header-actions > :not(.agent-connection),
+.mobile-analysis-active .agent-connection > .agent-pill {
+  display: none;
+}
+.mobile-analysis-active .agent-panel {
+  top: 55px;
+  right: 12px;
+}
+.mobile-analysis-active .content {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  width: 100%;
+  margin: 0;
+  max-width: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mobile-analysis-active .page-title {
+  display: none;
+}
+.mobile-analysis-active .content > .notice {
+  position: absolute;
+  z-index: 800;
+  top: 100px;
+  left: 12px;
+  right: 12px;
+  max-height: 120px;
+  overflow: auto;
+  margin: 0;
+  box-shadow: 0 6px 20px #0008;
+}
+.mobile-analysis {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: #dfebe9;
+  background: #111b22;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.mobile-analysis button,
+.mobile-analysis select {
+  min-height: 40px;
+  font: inherit;
+}
+.ma-lapbar {
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid #31434b;
+  flex-shrink: 0;
+}
+.ma-lapbar > button:last-child {
+  min-width: 40px;
+  padding: 4px;
+}
+.ma-lap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  background: #1b2a33;
+  border: 1px solid #3b5159;
+  border-radius: 8px;
+  color: #edf5f2;
+  text-align: left;
+}
+.ma-lap i {
+  width: 5px;
+  height: 25px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.ma-lap > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+}
+.ma-lap b,
+.ma-lap small {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ma-lap b {
+  font-size: 12px;
+}
+.ma-lap small {
+  font-size: 11px;
+  color: #b8c8cb;
+  margin-top: 2px;
+}
+.ma-lapbar select {
+  max-width: 62px;
+  padding: 3px;
+  font-size: 12px;
+}
+.ma-stage {
+  display: grid;
+  grid-template-rows: minmax(110px, var(--ma-split)) 18px minmax(140px, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.ma-map-pane {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.ma-map-box {
+  flex: 1;
+  min-height: 0;
+}
+.ma-map-box .map-shell {
+  border-radius: 0;
+  border: 0;
+}
+.ma-map-caption {
+  position: absolute;
+  bottom: 3px;
+  left: 6px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 55px);
+}
+.ma-map-caption > span {
+  max-width: 210px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  padding: 5px 7px;
+  background: #101d24e8;
+  border-radius: 6px;
+  font-size: 10px;
+  pointer-events: none;
+}
+.ma-map-caption button {
+  font-size: 10px;
+  min-height: 32px;
+  padding: 4px 7px;
+  background: #101d24ed;
+}
+.map-compact .map-tag,
+.map-compact .map-resize {
+  display: none;
+}
+.map-options-toggle {
+  position: absolute;
+  z-index: 550;
+  top: 8px;
+  right: 8px;
+  min-height: 40px;
+  background: #13252eeb;
+  color: #e6f2ef;
+  border: 1px solid #698087;
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.map-compact .map-camera-tools {
+  top: 8px;
+  left: 8px;
+  right: auto;
+}
+.map-compact .map-camera-tools button {
+  min-height: 40px;
+  font-size: 11px;
+  padding: 7px 9px;
+}
+.map-compact:not(.map-options-open) .map-camera-tools button:last-child {
+  display: none;
+}
+.map-compact .map-tools {
+  top: 56px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  background: #11232bf2;
+  border: 1px solid #526b72;
+  border-radius: 8px;
+  padding: 8px;
+}
+.map-compact .map-tools label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  min-height: 36px;
+}
+.map-compact .map-tools button {
+  min-height: 40px;
+}
+.map-compact .map-legend {
+  top: auto;
+  bottom: 40px;
+  right: 8px;
+  max-width: 210px;
+}
+.map-compact .leaflet-control-attribution {
+  font-size: 7px;
+  max-width: 50%;
+}
+.map-compact .leaflet-control-zoom {
+  margin-right: 8px;
+  margin-bottom: 20px;
+}
+.map-compact .leaflet-control-zoom a {
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+}
+.ma-divider {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #1f3039;
+  touch-action: none;
+  cursor: row-resize;
+  outline-offset: -2px;
+}
+.ma-divider > span {
+  width: 38px;
+  height: 4px;
+  border-radius: 3px;
+  background: #829ca4;
+}
+.ma-telemetry {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ma-chart-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  padding: 3px 5px;
+  border-bottom: 1px solid #32454e;
+  flex-shrink: 0;
+}
+.ma-gesture-hint {
+  flex: 1;
+  font-size: 10px;
+  color: #9cb4bc;
+  line-height: 1.3;
+}
+.ma-chart-tools button {
+  min-width: 31px;
+  min-height: 40px;
+  font-size: 11px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #b6c9cf;
+  border-radius: 6px;
+}
+.ma-chart-stack {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 2px 6px;
+  scrollbar-width: thin;
+}
+.ma-chart-stack .chart-panel {
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 1px solid #354a53;
+  overflow: hidden;
+}
+.ma-chart-stack .chart-title {
+  min-height: 24px;
+  margin: 0;
+  padding: 3px 5px 0;
+  align-items: center;
+  font-size: 10px;
+}
+.ma-chart-stack .chart-title > div:first-child {
+  display: flex;
+  gap: 5px;
+  width: 100%;
+  justify-content: space-between;
+}
+.ma-chart-stack .chart-title span {
+  font-size: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ma-chart-stack .chart-title b {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ma-chart-stack .chart-title small {
+  font-size: 9px;
+}
+.ma-chart-stack .chart-actions,
+.ma-chart-stack .chart-height {
+  display: none;
+}
+.ma-chart-stack canvas {
+  touch-action: pan-y;
+}
+.ma-transport {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px;
+  border-top: 1px solid #31464f;
+  font:
+    11px ui-monospace,
+    monospace;
+  flex-shrink: 0;
+}
+.ma-transport .ma-play {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 3px;
+  background: #ff965e;
+  color: #15262c;
+}
+.ma-transport input {
+  width: 0;
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  accent-color: #ff965e;
+}
+.ma-transport output {
+  white-space: nowrap;
+  min-width: 48px;
+  text-align: right;
+  color: #c6d9db;
+}
+.ma-videos {
+  display: flex;
+  height: clamp(72px, 14dvh, 130px);
+  flex-shrink: 0;
+  background: #060c10;
+}
+.ma-videos > button {
+  width: 100%;
+  font-size: 12px;
+}
+.ma-video {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #b9c9cb;
+  font-size: 11px;
+  text-align: center;
+}
+.ma-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ma-video > b {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  font-size: 10px;
+  padding: 2px 4px;
+  background: #112530c9;
+}
+.ma-video > button {
+  position: absolute;
+  min-height: 32px;
+}
+.ma-empty {
+  padding: 18px;
+  font-size: 12px;
+}
+dialog.ma-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  margin: 0 auto;
+  width: min(600px, 100%);
+  max-width: 100%;
+  max-height: min(85dvh, 850px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+  background: #15262f;
+  color: #e9f3f0;
+  border: 1px solid #4a626a;
+  border-radius: 18px 18px 0 0;
+}
+.ma-sheet::backdrop {
+  background: #030a10b8;
+}
+.ma-sheet-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: sticky;
+  top: -16px;
+  background: #15262f;
+  z-index: 1;
+  padding: 8px 0 12px;
+}
+.ma-sheet-heading h2 {
+  font-size: 20px;
+}
+.ma-sheet-heading button {
+  min-height: 44px;
+  min-width: 44px;
+}
+.ma-sheet > input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  margin-bottom: 10px;
+  padding: 10px;
+}
+.ma-lap-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px !important;
+  padding: 12px;
+  margin: 4px 0;
+  text-align: left;
+  border: 1px solid #3c535c;
+  border-radius: 9px;
+  background: #1b303a;
+  color: #ebf3ef;
+}
+.ma-lap-option[aria-pressed="true"] {
+  border-color: #ff965e;
+  background: #413326;
+}
+.ma-lap-option b,
+.ma-lap-option small {
+  display: block;
+}
+.ma-lap-option b {
+  font-size: 14px;
+}
+.ma-lap-option small {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #adbdc4;
+}
+.ma-lap-option strong {
+  white-space: nowrap;
+  font-size: 15px;
+}
+.ma-channel-option {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 48px;
+}
+.ma-channel-option input {
+  width: 20px;
+  height: 20px;
+}
+.ma-settings {
+  display: grid;
+  gap: 16px;
+  font-size: 13px;
+}
+.ma-settings label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+}
+.ma-settings select {
+  min-height: 44px;
+  max-width: 190px;
+}
+.ma-settings p,
+.ma-sheet > p {
+  color: #b3c6cc;
+  font-size: 13px;
+  line-height: 1.6;
+}
+@media (min-width: 700px) and (orientation: landscape) {
+  .ma-stage {
+    grid-template-columns: minmax(200px, var(--ma-split)) 18px minmax(
+        240px,
+        1fr
+      );
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .ma-divider {
+    cursor: col-resize;
+  }
+  .ma-divider > span {
+    height: 38px;
+    width: 4px;
+  }
+  .ma-map-caption > span {
+    max-width: 260px;
+  }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .mobile-analysis-active .mobile-workspace-bar {
+    height: 40px;
+    min-height: 40px;
+  }
+  .ma-lapbar {
+    padding: 2px 8px;
+  }
+  .ma-lapbar > button,
+  .ma-lapbar select {
+    min-height: 34px;
+  }
+  .ma-videos {
+    height: 72px;
+  }
+}
+
+.app.mobile-analysis-active main > footer {
+  display: none;
+}
+.mobile-analysis-active .mobile-workspace-bar {
+  padding-top: max(4px, env(safe-area-inset-top));
+}
+.ma-chart-stack .chart-title {
+  line-height: 1.2;
+}
+.ma-chart-stack .chart-title span:last-child {
+  max-width: 100%;
+}
+.ma-chart-stack .chart-title > div:first-child > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ma-chart-stack .chart-title > div:first-child > span:first-child b {
+  flex-shrink: 0;
+  margin-left: 0;
+}
+.map-compact .leaflet-control-attribution {
+  line-height: 1.15;
+  width: auto;
+}
+
+.mobile-analysis button,
+.mobile-analysis select {
+  touch-action: manipulation;
+}
+
+.ma-video .ma-video-audio {
+  right: 4px;
+  bottom: 4px;
+  min-height: 28px;
+  padding: 3px 6px;
+  font-size: 9px;
+  background: #0b1c25d9;
+  color: white;
+}
+.ma-chart-tools button {
+  min-height: 44px;
+}
+
+.mobile-analysis-active .mobile-workspace-bar {
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ma-quality {
+  max-height: 64px;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-size: 11px;
+  background: #47351e;
+  color: #ffe0ad;
+  flex-shrink: 0;
+}
