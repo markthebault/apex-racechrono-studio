@@ -8,6 +8,7 @@ import {
   type Report,
   type Snapshot,
 } from "./contracts";
+import { TrackPicker } from "./TrackPicker";
 import { CornerCoach } from "./CornerCoach";
 import { DebriefPreview, DebriefView } from "./DebriefView";
 import { installEngineer, requestEngineer } from "../agent/engineer";
@@ -186,29 +187,37 @@ export function McpEngineer({
       {snapshot ? (
         view === "corners" ? (
           activeCorner ? (
-            <CornerCoach
-              key={activeCorner.id}
-              snapshot={snapshot}
-              sessions={sessions}
-              settings={settings}
-              cornerId={activeCorner.id}
-              onCornerChange={setChosenCorner}
-              report={report}
-              speedUnit={speedUnit}
-              onEvidence={onEvidence}
-              onAnalyze={() =>
-                void ask(
-                  `Review ${activeCorner.name} (${activeCorner.id}). Compare every available top-three pass and the review lap using speed and G traces. Explain one useful practice step, contrary evidence and limitations. Return a corner review report.`,
-                  activeCorner.id,
-                )
-              }
-              busy={false}
-              canAnalyze={
-                connection === "connected" &&
-                cornerPasses(snapshot, activeCorner.id).length > 0
-              }
-              humanize={humanize}
-            />
+            <>
+              <TrackPicker
+                snapshot={snapshot}
+                sessions={sessions}
+                selectedId={activeCorner.id}
+                onSelect={setChosenCorner}
+              />
+              <CornerCoach
+                key={activeCorner.id}
+                snapshot={snapshot}
+                sessions={sessions}
+                settings={settings}
+                cornerId={activeCorner.id}
+                onCornerChange={setChosenCorner}
+                report={report}
+                speedUnit={speedUnit}
+                onEvidence={onEvidence}
+                onAnalyze={() =>
+                  void ask(
+                    `Review ${activeCorner.name} (${activeCorner.id}). Compare every available top-three pass and the review lap using speed and G traces. Explain one useful practice step, contrary evidence and limitations. Return a corner review report.`,
+                    activeCorner.id,
+                  )
+                }
+                busy={false}
+                canAnalyze={
+                  connection === "connected" &&
+                  cornerPasses(snapshot, activeCorner.id).length > 0
+                }
+                humanize={humanize}
+              />
+            </>
           ) : (
             <p>
               No {settings.reviewMode === "turns" ? "turns" : "sections"}{" "}

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Trace } from "../model";
 import type { Corner, Evidence, Report, Snapshot } from "./contracts";
-import { focusItems, focusCue, metricValue, trackPicture } from "./focus";
+import {
+  focusItems,
+  focusCue,
+  metricValue,
+  trackPicture,
+  trackOverview,
+} from "./focus";
 
 const corners: Corner[] = [
   { id: "a", name: "Review window 1", start: 20, end: 40, direction: "left" },
@@ -122,4 +128,26 @@ describe("visual section reviews", () => {
     t.lat.fill(NaN);
     expect(trackPicture(t, corners[1])).toBeUndefined();
   });
+});
+
+it("keeps overview regions in one projection and separates their labels", () => {
+  const t = recordedTrace();
+  const overview = trackOverview(t, corners, { a: 30, b: 30 })!;
+  expect(overview.regions.map((r) => r.id)).toEqual(["a", "b"]);
+  expect(overview.whole).not.toMatch(/NaN|Infinity/);
+  expect(overview.regions[0].anchor).toEqual(overview.regions[1].anchor);
+  expect(overview.regions[0].label).not.toEqual(overview.regions[1].label);
+  expect(overview.regions.every((r) => r.path.includes("L"))).toBe(true);
+});
+it("retains gaps on the full track and omits labels inside an outage", () => {
+  const t = recordedTrace();
+  for (let i = 5; i < t.times.length; i++) t.times[i] += 5000;
+  const overview = trackOverview(t, [{ ...corners[0], start: 20, end: 80 }], {
+    a: 45,
+  })!;
+  expect(overview.whole.match(/M/g)).toHaveLength(2);
+  expect(overview.regions[0].path.match(/M/g)).toHaveLength(2);
+  expect(overview.regions[0].anchor).toBeUndefined();
+  t.lat.fill(NaN);
+  expect(trackOverview(t, corners)).toBeUndefined();
 });

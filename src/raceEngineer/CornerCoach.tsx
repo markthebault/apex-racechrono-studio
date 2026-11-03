@@ -319,7 +319,7 @@ export function CornerCoach({
           <div>
             <h3>
               {sectionName(corner)}
-              {turnIds.length > 0 && (
+              {!isTurns && turnIds.length > 0 && (
                 <small className="engineer-turn-labels">
                   {" "}
                   · {turnIds.join(" / ")}

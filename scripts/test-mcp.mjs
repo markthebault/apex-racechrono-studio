@@ -48,6 +48,19 @@ const call = async (name, args = {}) => {
 };
 const json = async (name, args = {}) =>
   JSON.parse((await call(name, args)).content[0].text);
+const clickTrackRegion = async (map, id) => {
+  await map.scrollIntoViewIfNeeded();
+  const point = await map
+    .locator(`[data-region-id="${id}"]`)
+    .evaluate((path) => {
+      const point = path.getPointAtLength(path.getTotalLength() / 2);
+      const screen = new DOMPoint(point.x, point.y).matrixTransform(
+        path.getScreenCTM(),
+      );
+      return { x: screen.x, y: screen.y };
+    });
+  await page.mouse.click(point.x, point.y);
+};
 try {
   await client.connect(transport);
   const connection = await json("apex_connection");
@@ -186,6 +199,33 @@ try {
     .getByRole("button", { name: "Copy corner review request", exact: true })
     .waitFor();
   assert.equal(await page.getByLabel("API key", { exact: true }).count(), 0);
+  // Full-track targets, keyboard labels and the existing picker share selection.
+  const turnMap = page.getByRole("group", { name: "Track turns", exact: true });
+  await page
+    .locator(".engineer-track-picker")
+    .screenshot({ path: "evidence/engineer-turn-selector.png" });
+  await clickTrackRegion(turnMap, "T2");
+  assert.equal(
+    await page.getByLabel("Turn", { exact: true }).inputValue(),
+    "T2",
+  );
+  assert.equal((await json("apex_state")).selectedCorner.cornerId, "T2");
+  await turnMap
+    .getByRole("button", { name: "Select T1", exact: true })
+    .press("Enter");
+  assert.equal(
+    await page.getByLabel("Turn", { exact: true }).inputValue(),
+    "T1",
+  );
+  await page.getByLabel("Turn", { exact: true }).selectOption("T2");
+  assert.equal(
+    await turnMap
+      .getByRole("button", { name: "Select T2", exact: true })
+      .getAttribute("aria-pressed"),
+    "true",
+  );
+  await turnMap.getByRole("button", { name: "Select T1", exact: true }).click();
+
   await page
     .getByRole("button", { name: "Copy corner review request", exact: true })
     .click();
@@ -320,6 +360,32 @@ try {
   assert.notEqual(sectionContext.snapshotId, oldTurnRequest.snapshotId);
   assert(sectionContext.reviewRegions.every((c) => !/^T\d+$/.test(c.id)));
   assert.equal(sectionContext.request, null);
+  const sectionMap = page.getByRole("group", {
+    name: "Track sections",
+    exact: true,
+  });
+  await page
+    .locator(".engineer-track-picker")
+    .screenshot({ path: "evidence/engineer-section-selector.png" });
+  const secondSection = sectionContext.reviewRegions[1];
+  assert(secondSection);
+  await clickTrackRegion(sectionMap, secondSection.id);
+  assert.equal(
+    await page.getByLabel("Section", { exact: true }).inputValue(),
+    secondSection.id,
+  );
+  assert.equal(
+    (await json("apex_state")).selectedCorner.cornerId,
+    secondSection.id,
+  );
+  await sectionMap
+    .getByRole("button", { name: "Select Section 1", exact: true })
+    .press(" ");
+  assert.equal(
+    await page.getByLabel("Section", { exact: true }).inputValue(),
+    sectionContext.reviewRegions[0].id,
+  );
+
   assert(
     (
       await client.callTool({
