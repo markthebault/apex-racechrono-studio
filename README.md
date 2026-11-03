@@ -40,3 +40,5 @@ Connect a local MCP agent to inspect the current workspace, query telemetry, nav
 Analyze labels detected GPS bends **T1, T2, …** on the 2D/3D map. Select a turn to focus its telemetry; the same IDs and distance ranges are available to the MCP agent. Numbering is automatic and may differ from the circuit’s official turns.
 
 Connected bends can receive separate numbers when two sustained tightening points are separated by a clear relaxation, even without a straight between them. Brief GPS spikes and shallow shoulders do not create additional turns.
+
+Phone and tablet Analyze keeps the map, lap comparison and compact telemetry together, with explicit Scrub / Pan / Zoom controls. See the [mobile analysis guide](docs/mobile-analysis.md).

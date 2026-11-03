@@ -12,7 +12,9 @@
     "deploy:pages": "node scripts/deploy-pages.mjs",
     "mcp": "node mcp/server.mjs",
     "test:mcp": "node scripts/test-mcp.mjs",
-    "test:mcp-install": "node scripts/test-mcp-install.mjs"
+    "test:mcp-install": "node scripts/test-mcp-install.mjs",
+    "test:mobile": "node scripts/test-mobile.mjs",
+    "test:mobile-video": "node scripts/test-mobile-video.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

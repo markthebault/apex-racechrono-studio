@@ -1,3 +1,8 @@
+import {
+  gestureAxis,
+  panTimeline,
+  type ChartInteraction,
+} from "./mobileAnalysis";
 import { useEffect, useRef, useState } from "react";
 import type { Trace, ChartConfig, Comparison } from "./model";
 import { definitions } from "./model";
@@ -20,7 +25,11 @@ export function Chart({
   onChange,
   onRemove,
   onUp,
+  compact = false,
+  interaction = "range",
 }: {
+  compact?: boolean;
+  interaction?: ChartInteraction;
   config: ChartConfig;
   colors: [string, string];
   speedUnit: string;
@@ -40,7 +49,14 @@ export function Chart({
   onUp: () => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null),
-    start = useRef<{ d: number; x: number } | null>(null);
+    start = useRef<{
+      d: number;
+      x: number;
+      y: number;
+      range: [number, number];
+      cursor: number;
+      axis: string;
+    } | null>(null);
   // Hover only previews values; a click moves the shared cursor.
   const [hover, setHover] = useState<number | null>(null),
     [selection, setSelection] = useState<[number, number] | null>(null);
@@ -67,8 +83,9 @@ export function Chart({
     const pad = 48;
     ctx.font = "10px Inter, system-ui";
     ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = 12 + ((h - 35) * i) / 4;
+    const gridLines = compact ? 2 : 4;
+    for (let i = 0; i <= gridLines; i++) {
+      const y = 12 + ((h - 35) * i) / gridLines;
       ctx.strokeStyle = "#35434b";
       ctx.beginPath();
       ctx.moveTo(pad, y);
@@ -198,11 +215,11 @@ export function Chart({
       max = Math.max(max, min + 1);
       if (channelIndex === 0) {
         ctx.fillStyle = "#b6c1c5";
-        for (let i = 0; i <= 4; i++)
+        for (let i = 0; i <= gridLines; i++)
           ctx.fillText(
-            (max - ((max - min) * i) / 4).toFixed(0),
+            (max - ((max - min) * i) / gridLines).toFixed(0),
             5,
-            16 + ((h - 35) * i) / 4,
+            16 + ((h - 35) * i) / gridLines,
           );
       }
       const lines: [Trace, Float64Array | undefined, string][] = [
@@ -292,7 +309,7 @@ export function Chart({
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    if (hover !== null && !selection) {
+    if (hover !== null && !selection && !compact) {
       const hx = px(hover);
       const value = (t: Trace | undefined, id: string) => {
         if (!t) return "";
@@ -312,7 +329,10 @@ export function Chart({
           ),
         },
         ...config.channels.map((id) => ({
-          label: definitions[id]?.name || id,
+          label:
+            compact && id === "acceleration"
+              ? "Longitudinal G · calc"
+              : definitions[id]?.name || id,
           values: traces.map((t) => value(t, id)),
         })),
       ];
@@ -413,6 +433,7 @@ export function Chart({
     hover,
     sharedHover,
     selection,
+    compact,
   ]);
   const position = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();
@@ -426,12 +447,14 @@ export function Chart({
     );
   };
   return (
-    <section className="chart-panel">
+    <section className={`chart-panel ${compact ? "chart-compact" : ""}`}>
       <div className="chart-title">
         <div>
           {config.channels.map((id, index) => (
             <span key={id}>
-              {definitions[id]?.name || id}{" "}
+              {compact && id === "acceleration"
+                ? "Longitudinal G · calc"
+                : definitions[id]?.name || id}{" "}
               <small>
                 {id === "speed" || id === "obdSpeed"
                   ? speedUnit
@@ -474,6 +497,7 @@ export function Chart({
             </span>
           ))}
           {showDelta &&
+            !compact &&
             others.map((o) => (
               <span key={o.tag}>
                 Δ time A−{o.tag} <small>s</small>
@@ -518,42 +542,108 @@ export function Chart({
           </button>
         </div>
       </div>
-      {showDelta && (
+      {showDelta && !compact && (
         <small className="muted">
           Background: cumulative time delta, A minus each other lap. Above the
           dashed zero line A is behind; below it A is ahead. The fill follows
           the first comparison lap.
         </small>
       )}
-      {config.channels.length > 1 && (
+      {config.channels.length > 1 && !compact && (
         <small className="muted">
           Overlaid channels use independent scales. Dashed lines show additional
           channels.
         </small>
       )}
       <canvas
-        aria-label={`${config.channels.join(", ")} telemetry chart. Hover to preview values, click to move the cursor, drag to zoom.`}
+        aria-label={`${config.channels.join(", ")} telemetry chart. ${compact ? `${interaction === "range" ? "Zoom" : interaction} mode. Drag horizontally; swipe vertically to scroll channels.` : "Hover to preview values, click to move the cursor, drag to zoom."}`}
         tabIndex={0}
         ref={canvas}
         style={{ height: config.height }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            e.preventDefault();
+            e.stopPropagation();
+            onCursor(
+              Math.max(
+                0,
+                Math.min(
+                  length,
+                  cursor +
+                    (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 50 : 10),
+                ),
+              ),
+            );
+          }
+        }}
         onPointerDown={(e) => {
+          if (e.button !== 0 || !e.isPrimary) return;
           const d = position(e);
-          start.current = { d, x: e.clientX };
-          setHover(d);
-          hoverBus.set(d);
-          try {
-            e.currentTarget.setPointerCapture(e.pointerId);
-          } catch {
-            /* Synthetic and cancelled pointers may no longer be active. */
+          start.current = {
+            d,
+            x: e.clientX,
+            y: e.clientY,
+            range: [...range],
+            cursor,
+            axis:
+              compact && e.pointerType === "touch" ? "pending" : "horizontal",
+          };
+          if (!compact) {
+            setHover(d);
+            hoverBus.set(d);
+          }
+          if (!compact || e.pointerType !== "touch") {
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {
+              /* Pointer already ended. */
+            }
           }
         }}
         onPointerMove={(e) => {
-          const d = position(e);
+          const d = position(e),
+            from = start.current;
+          if (!from) {
+            if (!compact) {
+              setHover(d);
+              hoverBus.set(d);
+            }
+            return;
+          }
+          if (from.axis === "pending")
+            from.axis = gestureAxis(e.clientX - from.x, e.clientY - from.y);
+          if (from.axis === "scroll" || from.axis === "pending") return;
+          if (compact) {
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {
+              /* Pointer cancelled. */
+            }
+            hoverBus.set(null);
+            if (interaction === "scrub") {
+              onCursor(d);
+              return;
+            }
+            if (interaction === "pan") {
+              const next = panTimeline(
+                from.range,
+                e.clientX - from.x,
+                canvas.current!.clientWidth - 63,
+                length,
+              );
+              onZoom(next);
+              onCursor(
+                Math.max(
+                  next[0],
+                  Math.min(next[1], from.cursor + next[0] - from.range[0]),
+                ),
+              );
+              return;
+            }
+          }
           setHover(d);
-          const dragging =
-            start.current && Math.abs(e.clientX - start.current.x) >= 4;
-          if (dragging) setSelection([start.current!.d, d]);
-          // No ghost cars while dragging out a zoom range.
+          const dragging = Math.abs(e.clientX - from.x) >= (compact ? 8 : 4);
+          if (dragging) setSelection([from.d, d]);
           hoverBus.set(dragging ? null : d);
         }}
         onPointerLeave={() => {
@@ -573,9 +663,14 @@ export function Chart({
             end = position(e);
           start.current = null;
           setSelection(null);
-          hoverBus.set(end);
-          if (!from) return;
-          if (Math.abs(e.clientX - from.x) < 4) onCursor(end);
+          setHover(null);
+          hoverBus.set(compact ? null : end);
+          if (!from || from.axis === "scroll") return;
+          if (compact && interaction !== "range") {
+            if (interaction === "scrub" || Math.abs(e.clientX - from.x) < 8)
+              onCursor(end);
+          } else if (Math.abs(e.clientX - from.x) < (compact ? 8 : 4))
+            onCursor(end);
           else if (Math.abs(end - from.d) > 50)
             onRange([Math.min(from.d, end), Math.max(from.d, end)]);
         }}

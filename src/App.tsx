@@ -1,3 +1,6 @@
+import { TouchButton } from "./TouchButton";
+import { MobileAnalysis } from "./MobileAnalysis";
+import { useCompactAnalysis } from "./mobileAnalysis";
 import {
   useStoredView,
   workspaceTab,
@@ -152,6 +155,17 @@ const defaults: Settings = {
 const EXTRA_COLORS = ["#c792ea", "#f2d15b", "#7fb2ff", "#ff7a90"];
 const emptySync: SyncFile = { format: "apex-sync", version: 1, bindings: [] };
 export default function App() {
+  const touchLayout = useCompactAnalysis();
+  const [fullAnalysisTools, setFullAnalysisTools] = useStoredView(
+    "mobile-full-tools",
+    false,
+    viewBoolean,
+  );
+  const compactAnalysis = touchLayout && !fullAnalysisTools;
+  const [mobileView, setMobileView] = useState<{
+    channels: string[];
+    interaction: string;
+  } | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]),
     [settings, setSettings] = useState(defaults),
     [sync, setSync] = useState(emptySync),
@@ -203,6 +217,11 @@ export default function App() {
     lapId: string;
     timestamp: number;
   } | null>(null);
+  useEffect(() => {
+    if (!compactAnalysis || !status.startsWith("Imported")) return;
+    const timer = setTimeout(() => setStatus(""), 3500);
+    return () => clearTimeout(timer);
+  }, [compactAnalysis, status]);
   const [sourceFiles, setSourceFiles] = useState<Record<string, File>>({});
   const [driveOpen, setDriveOpen] = useState(false);
   const [projectReview, setProjectReview] = useState<{
@@ -1278,7 +1297,9 @@ export default function App() {
     if (name === "Video sync") setShowVideos(true);
   };
   return (
-    <div className="app">
+    <div
+      className={`app ${compactAnalysis && tab === "Analyze" && a ? "mobile-analysis-active" : ""}`}
+    >
       <GoogleDriveDialog
         open={driveOpen}
         onClose={() => setDriveOpen(false)}
@@ -1348,13 +1369,13 @@ export default function App() {
       </aside>
       <main>
         <div className="mobile-workspace-bar">
-          <button
+          <TouchButton
             onClick={() => setMenuOpen(true)}
             aria-haspopup="dialog"
             aria-expanded={menuOpen}
           >
             <Menu size={20} /> Tracks & sessions
-          </button>
+          </TouchButton>
           <span>{tab}</span>
         </div>
         <header>
@@ -1364,6 +1385,11 @@ export default function App() {
             <span>{tab}</span>
           </div>
           <div className="header-actions">
+            {touchLayout && fullAnalysisTools && (
+              <button onClick={() => setFullAnalysisTools(false)}>
+                Touch workspace
+              </button>
+            )}
             <AgentPanel
               host={{
                 sessions,
@@ -1376,7 +1402,23 @@ export default function App() {
                   comparisonLapId: b?.id,
                   range,
                   cursor,
-                  channels: settings.charts,
+                  channels:
+                    compactAnalysis && tab === "Analyze" && mobileView
+                      ? mobileView.channels.map((id) => ({
+                          id: `mobile-${id}`,
+                          channels: [id],
+                        }))
+                      : settings.charts,
+                  analysisLayout:
+                    compactAnalysis && tab === "Analyze" ? "touch" : "desktop",
+                  chartInteraction:
+                    compactAnalysis && tab === "Analyze"
+                      ? mobileView?.interaction
+                      : undefined,
+                  visibleComparisonLapIds: (compactAnalysis && tab === "Analyze"
+                    ? comparisons.slice(0, 1)
+                    : comparisons
+                  ).map((c) => c.trace.id),
                   playing,
                   turnReferenceId: ref?.id,
                   detectedTurns,
@@ -1594,591 +1636,709 @@ export default function App() {
               )}
               {(tab === "Analyze" || tab === "Video sync") && a && (
                 <>
-                  <div className="stats">
-                    <div>
-                      <span>BEST RECORDED LAP</span>
-                      <strong>
-                        {lapTime(
-                          Math.min(
-                            ...traces
+                  {compactAnalysis && tab === "Analyze" ? (
+                    <MobileAnalysis
+                      a={a}
+                      chartA={displayTraces[0]!}
+                      mapOthers={
+                        b && comparisons[0]
+                          ? [{ ...comparisons[0], trace: b }]
+                          : []
+                      }
+                      laps={scoped}
+                      others={comparisons.slice(0, 1)}
+                      settings={settings}
+                      onSettings={patch}
+                      onView={setMobileView}
+                      onFullTools={() => setFullAnalysisTools(true)}
+                      cursor={cursor}
+                      range={range}
+                      elapsed={elapsed}
+                      delta={delta}
+                      playing={playing}
+                      rate={playbackRate}
+                      onRate={setPlaybackRate}
+                      onPlay={togglePlay}
+                      onCursor={(d) => {
+                        setPlaying(false);
+                        setExact(null);
+                        setCursor(d);
+                      }}
+                      onRange={(r) => {
+                        setRange(r);
+                        setSelectedTurn(null);
+                      }}
+                      turns={detectedTurns}
+                      selectedTurn={selectedTurn}
+                      gates={gates}
+                      channels={[...channelsWithData]}
+                      onFocusTurn={(id) => {
+                        const turn = detectedTurns.find((t) => t.id === id);
+                        setPlaying(false);
+                        setExact(null);
+                        setSelectedTurn(turn?.id ?? null);
+                        setRange(
+                          turn ? turnFocusRange(turn, a.length) : [0, a.length],
+                        );
+                        if (turn) setCursor(turn.position);
+                      }}
+                      media={[
+                        {
+                          tag: "A",
+                          stamp: at,
+                          binding: sync.bindings.find(
+                            (b) => b.session.sha256 === sa?.id,
+                          ),
+                        },
+                        ...(b
+                          ? [
+                              {
+                                tag: "B",
+                                stamp: videoStampB,
+                                binding: sync.bindings.find(
+                                  (b) => b.session.sha256 === videoSessionB?.id,
+                                ),
+                              },
+                            ]
+                          : []),
+                      ]}
+                      files={files}
+                      onVideoSetup={() => {
+                        setShowVideos(true);
+                        setTab("Video sync");
+                      }}
+                      optimal={ideal}
+                      sectorCount={sectors.length}
+                      trackName={sa?.track ?? "Track analysis"}
+                    />
+                  ) : (
+                    <>
+                      <div className="stats">
+                        <div>
+                          <span>BEST RECORDED LAP</span>
+                          <strong>
+                            {lapTime(
+                              Math.min(
+                                ...traces
+                                  .filter(
+                                    (t) =>
+                                      (!settings.collection.length ||
+                                        settings.collection.includes(
+                                          t.sessionId,
+                                        )) &&
+                                      sessions.find((x) => x.id === t.sessionId)
+                                        ?.trackId === sa?.trackId &&
+                                      !t.issues.some(
+                                        (i) =>
+                                          i.includes("invalid") ||
+                                          i.includes("Interrupted"),
+                                      ),
+                                  )
+                                  .map((t) => t.lap.end - t.lap.start),
+                              ),
+                            )}
+                          </strong>
+                          <small>
+                            Recorded time · GPS quality shown per lap
+                          </small>
+                        </div>
+                        <div>
+                          <span>THEORETICAL OPTIMAL</span>
+                          <strong className="cyan">
+                            {ideal ? lapTime(ideal.lap.end) : "—"}
+                          </strong>
+                          <small>
+                            {sectors.length} best sectors · {eligible.length}{" "}
+                            eligible laps
+                          </small>
+                        </div>
+                        <div>
+                          <span>POTENTIAL GAIN</span>
+                          <strong>
+                            {ideal
+                              ? (
+                                  Math.max(
+                                    0,
+                                    Math.min(
+                                      ...eligible.map(
+                                        (t) => t.lap.end - t.lap.start,
+                                      ),
+                                    ) - ideal.lap.end,
+                                  ) / 1000
+                                ).toFixed(3) + " s"
+                              : "—"}
+                          </strong>
+                          <small>Compared with the best eligible lap</small>
+                        </div>
+                        <div>
+                          <span>TRACK DISTANCE</span>
+                          <strong>
+                            {(a.length / 1000).toFixed(2)} <em>km</em>
+                          </strong>
+                          <small>
+                            GPS reference · Imported gates preserved
+                          </small>
+                        </div>
+                      </div>
+                      <div className="comparison-bar">
+                        <div className="lap-picker">
+                          <input
+                            aria-label="Lap A color"
+                            type="color"
+                            value={settings.colors[0]}
+                            onChange={(e) =>
+                              patch({
+                                colors: [e.target.value, settings.colors[1]],
+                              })
+                            }
+                          />
+                          <select
+                            aria-label="Lap A"
+                            value={a.id}
+                            onChange={(e) => patch({ a: e.target.value })}
+                          >
+                            {scoped.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {labels(t)}
+                                {t.issues.length ? " ⚠" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <span className="versus">vs</span>
+                        <div className="lap-picker">
+                          <input
+                            aria-label="Lap B color"
+                            type="color"
+                            value={settings.colors[1]}
+                            onChange={(e) =>
+                              patch({
+                                colors: [settings.colors[0], e.target.value],
+                              })
+                            }
+                          />
+                          <select
+                            aria-label="Lap B"
+                            value={settings.b}
+                            onChange={(e) => patch({ b: e.target.value })}
+                          >
+                            <option value="">Choose comparison lap</option>
+                            {scoped
                               .filter(
                                 (t) =>
-                                  (!settings.collection.length ||
-                                    settings.collection.includes(
-                                      t.sessionId,
-                                    )) &&
-                                  sessions.find((x) => x.id === t.sessionId)
-                                    ?.trackId === sa?.trackId &&
-                                  !t.issues.some(
-                                    (i) =>
-                                      i.includes("invalid") ||
-                                      i.includes("Interrupted"),
+                                  t.id !== a.id &&
+                                  !t.issues.some((i) =>
+                                    i.includes("Incompatible"),
                                   ),
                               )
-                              .map((t) => t.lap.end - t.lap.start),
-                          ),
-                        )}
-                      </strong>
-                      <small>Recorded time · GPS quality shown per lap</small>
-                    </div>
-                    <div>
-                      <span>THEORETICAL OPTIMAL</span>
-                      <strong className="cyan">
-                        {ideal ? lapTime(ideal.lap.end) : "—"}
-                      </strong>
-                      <small>
-                        {sectors.length} best sectors · {eligible.length}{" "}
-                        eligible laps
-                      </small>
-                    </div>
-                    <div>
-                      <span>POTENTIAL GAIN</span>
-                      <strong>
-                        {ideal
-                          ? (
-                              Math.max(
-                                0,
-                                Math.min(
-                                  ...eligible.map(
-                                    (t) => t.lap.end - t.lap.start,
-                                  ),
-                                ) - ideal.lap.end,
-                              ) / 1000
-                            ).toFixed(3) + " s"
-                          : "—"}
-                      </strong>
-                      <small>Compared with the best eligible lap</small>
-                    </div>
-                    <div>
-                      <span>TRACK DISTANCE</span>
-                      <strong>
-                        {(a.length / 1000).toFixed(2)} <em>km</em>
-                      </strong>
-                      <small>GPS reference · Imported gates preserved</small>
-                    </div>
-                  </div>
-                  <div className="comparison-bar">
-                    <div className="lap-picker">
-                      <input
-                        aria-label="Lap A color"
-                        type="color"
-                        value={settings.colors[0]}
-                        onChange={(e) =>
-                          patch({
-                            colors: [e.target.value, settings.colors[1]],
-                          })
-                        }
-                      />
-                      <select
-                        aria-label="Lap A"
-                        value={a.id}
-                        onChange={(e) => patch({ a: e.target.value })}
-                      >
-                        {scoped.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {labels(t)}
-                            {t.issues.length ? " ⚠" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <span className="versus">vs</span>
-                    <div className="lap-picker">
-                      <input
-                        aria-label="Lap B color"
-                        type="color"
-                        value={settings.colors[1]}
-                        onChange={(e) =>
-                          patch({
-                            colors: [settings.colors[0], e.target.value],
-                          })
-                        }
-                      />
-                      <select
-                        aria-label="Lap B"
-                        value={settings.b}
-                        onChange={(e) => patch({ b: e.target.value })}
-                      >
-                        <option value="">Choose comparison lap</option>
-                        {scoped
-                          .filter(
-                            (t) =>
-                              t.id !== a.id &&
-                              !t.issues.some((i) => i.includes("Incompatible")),
-                          )
-                          .map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {labels(t)}
-                            </option>
-                          ))}
-                        {ideal && (
-                          <option value="optimal">
-                            Theoretical optimal · {lapTime(ideal.lap.end)}
-                          </option>
-                        )}
-                      </select>
-                    </div>
-                    {(settings.extras ?? []).map((e, i) => {
-                      const tag = String.fromCharCode(67 + i),
-                        set = (next: Partial<typeof e>) =>
-                          patch({
-                            extras: (settings.extras ?? []).map((x, k) =>
-                              k === i ? { ...x, ...next } : x,
-                            ),
-                          });
-                      return (
-                        <Fragment key={i}>
-                          <span className="versus">vs</span>
-                          <div className="lap-picker">
-                            <input
-                              aria-label={`Lap ${tag} color`}
-                              type="color"
-                              value={e.color}
-                              onChange={(ev) => set({ color: ev.target.value })}
-                            />
-                            <select
-                              aria-label={`Lap ${tag}`}
-                              value={e.id}
-                              onChange={(ev) => set({ id: ev.target.value })}
-                            >
-                              <option value="">Choose lap {tag}</option>
-                              {scoped
-                                .filter(
-                                  (t) =>
-                                    t.id !== a.id &&
-                                    !t.issues.some((x) =>
-                                      x.includes("Incompatible"),
-                                    ),
-                                )
-                                .map((t) => (
-                                  <option key={t.id} value={t.id}>
-                                    {labels(t)}
-                                  </option>
-                                ))}
-                              {ideal && (
-                                <option value="optimal">
-                                  Theoretical optimal · {lapTime(ideal.lap.end)}
+                              .map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {labels(t)}
                                 </option>
-                              )}
-                            </select>
+                              ))}
+                            {ideal && (
+                              <option value="optimal">
+                                Theoretical optimal · {lapTime(ideal.lap.end)}
+                              </option>
+                            )}
+                          </select>
+                        </div>
+                        {(settings.extras ?? []).map((e, i) => {
+                          const tag = String.fromCharCode(67 + i),
+                            set = (next: Partial<typeof e>) =>
+                              patch({
+                                extras: (settings.extras ?? []).map((x, k) =>
+                                  k === i ? { ...x, ...next } : x,
+                                ),
+                              });
+                          return (
+                            <Fragment key={i}>
+                              <span className="versus">vs</span>
+                              <div className="lap-picker">
+                                <input
+                                  aria-label={`Lap ${tag} color`}
+                                  type="color"
+                                  value={e.color}
+                                  onChange={(ev) =>
+                                    set({ color: ev.target.value })
+                                  }
+                                />
+                                <select
+                                  aria-label={`Lap ${tag}`}
+                                  value={e.id}
+                                  onChange={(ev) =>
+                                    set({ id: ev.target.value })
+                                  }
+                                >
+                                  <option value="">Choose lap {tag}</option>
+                                  {scoped
+                                    .filter(
+                                      (t) =>
+                                        t.id !== a.id &&
+                                        !t.issues.some((x) =>
+                                          x.includes("Incompatible"),
+                                        ),
+                                    )
+                                    .map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {labels(t)}
+                                      </option>
+                                    ))}
+                                  {ideal && (
+                                    <option value="optimal">
+                                      Theoretical optimal ·{" "}
+                                      {lapTime(ideal.lap.end)}
+                                    </option>
+                                  )}
+                                </select>
+                                <button
+                                  className="remove-lap"
+                                  aria-label={`Remove lap ${tag}`}
+                                  title={`Remove lap ${tag}`}
+                                  onClick={() =>
+                                    patch({
+                                      extras: (settings.extras ?? []).filter(
+                                        (_, k) => k !== i,
+                                      ),
+                                    })
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </Fragment>
+                          );
+                        })}
+                        {(settings.extras ?? []).length <
+                          EXTRA_COLORS.length && (
+                          <button
+                            className="add-lap"
+                            onClick={() =>
+                              patch({
+                                extras: [
+                                  ...(settings.extras ?? []),
+                                  {
+                                    id: "",
+                                    color:
+                                      EXTRA_COLORS[
+                                        (settings.extras ?? []).length
+                                      ],
+                                  },
+                                ],
+                              })
+                            }
+                          >
+                            + Add lap
+                          </button>
+                        )}
+                        <div className="comparison-actions">
+                          <select
+                            aria-label="Speed units"
+                            value={settings.speedUnit}
+                            onChange={(e) =>
+                              patch({
+                                speedUnit: e.target
+                                  .value as Settings["speedUnit"],
+                              })
+                            }
+                          >
+                            <option>km/h</option>
+                            <option>mph</option>
+                          </select>
+                          <select
+                            aria-label="Comparison alignment"
+                            value={settings.mode}
+                            onChange={(e) =>
+                              patch({
+                                mode: e.target.value as Settings["mode"],
+                              })
+                            }
+                          >
+                            <option value="distance">By distance</option>
+                            <option value="time">Elapsed-time replay</option>
+                          </select>
+                          <button
+                            className={showVideos ? "active" : ""}
+                            onClick={() => setShowVideos(!showVideos)}
+                          >
+                            <Video size={15} /> Video
+                          </button>
+                        </div>
+                      </div>
+                      {multiTrack && (
+                        <div className="notice">
+                          Your selection spans several tracks. The analyzer
+                          compares laps on one track at a time, currently{" "}
+                          {sa?.track}. Pick a lap from another track in Lap A to
+                          switch.
+                        </div>
+                      )}
+                      {a.issues.length > 0 && (
+                        <div className="notice">
+                          Lap A: {a.issues.join(" · ")}
+                        </div>
+                      )}
+                      {b && b.issues.length > 0 && (
+                        <div className="notice">
+                          Lap B: {b.issues.join(" · ")}
+                        </div>
+                      )}
+                      <div
+                        className="analyze-turns"
+                        aria-label="Detected turns"
+                      >
+                        <span title={turnLimitations}>
+                          {detectedTurns.length} detected turns
+                        </span>
+                        <div role="group" aria-label="Choose turn">
+                          {detectedTurns.map((t) => (
                             <button
-                              className="remove-lap"
-                              aria-label={`Remove lap ${tag}`}
-                              title={`Remove lap ${tag}`}
-                              onClick={() =>
-                                patch({
-                                  extras: (settings.extras ?? []).filter(
-                                    (_, k) => k !== i,
-                                  ),
-                                })
-                              }
+                              key={t.id}
+                              aria-label={`Focus ${t.label}`}
+                              aria-pressed={selectedTurn === t.id}
+                              title={`${t.direction} · ${Math.round(t.start)}–${Math.round(t.end)} m`}
+                              onClick={() => {
+                                setPlaying(false);
+                                setExact(null);
+                                setRange(turnFocusRange(t, a.length));
+                                setCursor(t.position);
+                                setSelectedTurn(t.id);
+                              }}
                             >
-                              ×
+                              {t.label}
                             </button>
-                          </div>
-                        </Fragment>
-                      );
-                    })}
-                    {(settings.extras ?? []).length < EXTRA_COLORS.length && (
-                      <button
-                        className="add-lap"
-                        onClick={() =>
-                          patch({
-                            extras: [
-                              ...(settings.extras ?? []),
-                              {
-                                id: "",
-                                color:
-                                  EXTRA_COLORS[(settings.extras ?? []).length],
-                              },
-                            ],
-                          })
-                        }
-                      >
-                        + Add lap
-                      </button>
-                    )}
-                    <div className="comparison-actions">
-                      <select
-                        aria-label="Speed units"
-                        value={settings.speedUnit}
-                        onChange={(e) =>
-                          patch({
-                            speedUnit: e.target.value as Settings["speedUnit"],
-                          })
-                        }
-                      >
-                        <option>km/h</option>
-                        <option>mph</option>
-                      </select>
-                      <select
-                        aria-label="Comparison alignment"
-                        value={settings.mode}
-                        onChange={(e) =>
-                          patch({ mode: e.target.value as Settings["mode"] })
-                        }
-                      >
-                        <option value="distance">By distance</option>
-                        <option value="time">Elapsed-time replay</option>
-                      </select>
-                      <button
-                        className={showVideos ? "active" : ""}
-                        onClick={() => setShowVideos(!showVideos)}
-                      >
-                        <Video size={15} /> Video
-                      </button>
-                    </div>
-                  </div>
-                  {multiTrack && (
-                    <div className="notice">
-                      Your selection spans several tracks. The analyzer compares
-                      laps on one track at a time, currently {sa?.track}. Pick a
-                      lap from another track in Lap A to switch.
-                    </div>
-                  )}
-                  {a.issues.length > 0 && (
-                    <div className="notice">Lap A: {a.issues.join(" · ")}</div>
-                  )}
-                  {b && b.issues.length > 0 && (
-                    <div className="notice">Lap B: {b.issues.join(" · ")}</div>
-                  )}
-                  <div className="analyze-turns" aria-label="Detected turns">
-                    <span title={turnLimitations}>
-                      {detectedTurns.length} detected turns
-                    </span>
-                    <div role="group" aria-label="Choose turn">
-                      {detectedTurns.map((t) => (
-                        <button
-                          key={t.id}
-                          aria-label={`Focus ${t.label}`}
-                          aria-pressed={selectedTurn === t.id}
-                          title={`${t.direction} · ${Math.round(t.start)}–${Math.round(t.end)} m`}
-                          onClick={() => {
+                          ))}
+                        </div>
+                        <small>
+                          Auto-detected · not official circuit numbering
+                        </small>
+                      </div>
+                      <TrackView
+                        a={a}
+                        others={comparisons}
+                        colors={settings.colors}
+                        cursor={cursor}
+                        range={range}
+                        gates={gates}
+                        turns={detectedTurns}
+                        selectedTurn={selectedTurn}
+                        onTurn={(id) => {
+                          const t = detectedTurns.find((t) => t.id === id);
+                          if (t) {
                             setPlaying(false);
                             setExact(null);
                             setRange(turnFocusRange(t, a.length));
                             setCursor(t.position);
                             setSelectedTurn(t.id);
-                          }}
+                          }
+                        }}
+                        brakeMarkers={brakeMarkers}
+                        onCursor={moveCursor}
+                        height={settings.mapHeight}
+                        onHeight={(mapHeight) => patch({ mapHeight })}
+                        speedUnit={settings.speedUnit}
+                      />
+                      <div className="transport">
+                        <button
+                          className="play"
+                          aria-label={
+                            playing ? "Pause playback" : "Play playback"
+                          }
+                          onClick={togglePlay}
                         >
-                          {t.label}
+                          {playing ? <Pause size={16} /> : <Play size={16} />}
                         </button>
-                      ))}
-                    </div>
-                    <small>
-                      Auto-detected · not official circuit numbering
-                    </small>
-                  </div>
-                  <TrackView
-                    a={a}
-                    others={comparisons}
-                    colors={settings.colors}
-                    cursor={cursor}
-                    range={range}
-                    gates={gates}
-                    turns={detectedTurns}
-                    selectedTurn={selectedTurn}
-                    onTurn={(id) => {
-                      const t = detectedTurns.find((t) => t.id === id);
-                      if (t) {
-                        setPlaying(false);
-                        setExact(null);
-                        setRange(turnFocusRange(t, a.length));
-                        setCursor(t.position);
-                        setSelectedTurn(t.id);
-                      }
-                    }}
-                    brakeMarkers={brakeMarkers}
-                    onCursor={moveCursor}
-                    height={settings.mapHeight}
-                    onHeight={(mapHeight) => patch({ mapHeight })}
-                    speedUnit={settings.speedUnit}
-                  />
-                  <div className="transport">
-                    <button
-                      className="play"
-                      aria-label={playing ? "Pause playback" : "Play playback"}
-                      onClick={togglePlay}
-                    >
-                      {playing ? <Pause size={16} /> : <Play size={16} />}
-                    </button>
-                    <select
-                      aria-label="Playback speed"
-                      value={playbackRate}
-                      onChange={(e) => setPlaybackRate(Number(e.target.value))}
-                    >
-                      {PLAYBACK_RATES.map((rate) => (
-                        <option key={rate} value={rate}>
-                          {rate}×
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      aria-pressed={loopSection}
-                      disabled={!canLoop}
-                      title={
-                        canLoop
-                          ? "Replay the selected section repeatedly"
-                          : "Select a section on a graph first"
-                      }
-                      onClick={() => setLoopSection(!loopSection)}
-                    >
-                      Loop section
-                    </button>
-                    <ClockInput
-                      ms={elapsed}
-                      max={a.lap.end - a.lap.start}
-                      onJump={(ms) => goTo(a.lap.start + ms)}
-                    />
-                    <input
-                      aria-label="Track position"
-                      type="range"
-                      min={range[0]}
-                      max={range[1]}
-                      step="1"
-                      value={cursor}
-                      onChange={(e) => moveCursor(+e.target.value)}
-                    />
-                    <span className="mono">
-                      {(cursor / 1000).toFixed(2)} km
-                    </span>
-                    <span className="delta">
-                      Δ{" "}
-                      {Number.isFinite(delta)
-                        ? `${delta > 0 ? "+" : ""}${(delta / 1000).toFixed(3)} s`
-                        : "—"}
-                    </span>
-                    <button onClick={() => setRange([0, a.length])}>
-                      Reset zoom
-                    </button>
-                  </div>
-                  {a && b && b.sessionId !== "optimal" && (
-                    <BrakingComparison
-                      a={a}
-                      b={b}
-                      pairs={brakePairs}
-                      open={showBrakePoints}
-                      onOpen={setShowBrakePoints}
-                      onFocus={(pair) => {
-                        const starts = [pair.a?.start, pair.b?.start].filter(
-                          (n): n is number => n !== undefined,
-                        );
-                        const ends = [pair.a?.end, pair.b?.end].filter(
-                          (n): n is number => n !== undefined,
-                        );
-                        setRange([
-                          Math.max(0, Math.min(...starts) - 120),
-                          Math.min(a.length, Math.max(...ends) + 120),
-                        ]);
-                        moveCursor(pair.a?.start ?? pair.b!.start);
-                        setPlaying(false);
-                      }}
-                    />
-                  )}
-                  {showVideos && (
-                    <div
-                      className="videos"
-                      style={
-                        {
-                          "--video-height": `${settings.videoHeight}px`,
-                        } as React.CSSProperties
-                      }
-                    >
-                      <VideoPanel
-                        label="LAP A"
-                        session={sa}
-                        stamp={at}
-                        binding={sync.bindings.find(
-                          (b) => b.session.sha256 === sa?.id,
-                        )}
-                        onBinding={updateBinding}
-                        files={files}
-                        setFiles={setFiles}
-                        sourceFiles={sourceFiles}
-                        setSourceFiles={setSourceFiles}
-                        onBusy={setBusyA}
-                        onPause={() => setPlaying(false)}
-                        onGoTo={goTo}
-                        lapStart={a?.lap.start}
-                        lapDuration={a ? a.lap.end - a.lap.start : undefined}
-                        onJumpLap={(ms) => a && goTo(a.lap.start + ms)}
-                        onUnlink={() =>
-                          setSync((s) => ({
-                            ...s,
-                            bindings: s.bindings.filter(
-                              (b) => b.session.sha256 !== sa?.id,
-                            ),
-                          }))
-                        }
-                        playbackRate={playbackRate}
-                        playing={playing && !busyB}
-                      />
-                      <VideoPanel
-                        label="LAP B"
-                        session={videoSessionB}
-                        stamp={videoStampB}
-                        lapStart={
-                          optimalSource
-                            ? optimalSource.source.lap.start
-                            : b?.lap.start
-                        }
-                        binding={sync.bindings.find(
-                          (b) => b.session.sha256 === videoSessionB?.id,
-                        )}
-                        onBinding={updateBinding}
-                        files={files}
-                        setFiles={setFiles}
-                        sourceFiles={sourceFiles}
-                        setSourceFiles={setSourceFiles}
-                        onBusy={setBusyB}
-                        onPause={() => setPlaying(false)}
-                        onUnlink={() =>
-                          setSync((s) => ({
-                            ...s,
-                            bindings: s.bindings.filter(
-                              (b) => b.session.sha256 !== videoSessionB?.id,
-                            ),
-                          }))
-                        }
-                        playbackRate={playbackRate}
-                        playing={playing && !busyA}
-                      />
-                    </div>
-                  )}
-                  {showVideos && (
-                    <label className="video-size">
-                      Video panel height{" "}
-                      <input
-                        aria-label="Video height"
-                        type="range"
-                        min="180"
-                        max="500"
-                        value={settings.videoHeight}
-                        onChange={(e) =>
-                          patch({ videoHeight: +e.target.value })
-                        }
-                      />
-                    </label>
-                  )}
-                  {tab === "Video sync" && (
-                    <div className="notice">
-                      <span>
-                        Download timing only. Session and video filenames,
-                        SHA-256 hashes, clip order, and anchors are included. No
-                        recording data.
-                      </span>
-                      <button
-                        onClick={() =>
-                          download(
-                            "track-day.rcsync.json",
-                            JSON.stringify(sync, null, 2),
-                          )
-                        }
-                      >
-                        <ArrowDownToLine size={14} /> Download sync file
-                      </button>
-                    </div>
-                  )}
-                  <div className="section-heading">
-                    <h2>
-                      Telemetry{" "}
-                      <span>
-                        {visibleCharts.length}{" "}
-                        {visibleCharts.length === 1 ? "chart" : "charts"}
-                      </span>
-                    </h2>
-                    <div>
-                      <small>Drag a chart to zoom into a section</small>
-                      {emptyChartCount > 0 && (
-                        <label className="empty-chart-toggle">
+                        <select
+                          aria-label="Playback speed"
+                          value={playbackRate}
+                          onChange={(e) =>
+                            setPlaybackRate(Number(e.target.value))
+                          }
+                        >
+                          {PLAYBACK_RATES.map((rate) => (
+                            <option key={rate} value={rate}>
+                              {rate}×
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          aria-pressed={loopSection}
+                          disabled={!canLoop}
+                          title={
+                            canLoop
+                              ? "Replay the selected section repeatedly"
+                              : "Select a section on a graph first"
+                          }
+                          onClick={() => setLoopSection(!loopSection)}
+                        >
+                          Loop section
+                        </button>
+                        <ClockInput
+                          ms={elapsed}
+                          max={a.lap.end - a.lap.start}
+                          onJump={(ms) => goTo(a.lap.start + ms)}
+                        />
+                        <input
+                          aria-label="Track position"
+                          type="range"
+                          min={range[0]}
+                          max={range[1]}
+                          step="1"
+                          value={cursor}
+                          onChange={(e) => moveCursor(+e.target.value)}
+                        />
+                        <span className="mono">
+                          {(cursor / 1000).toFixed(2)} km
+                        </span>
+                        <span className="delta">
+                          Δ{" "}
+                          {Number.isFinite(delta)
+                            ? `${delta > 0 ? "+" : ""}${(delta / 1000).toFixed(3)} s`
+                            : "—"}
+                        </span>
+                        <button onClick={() => setRange([0, a.length])}>
+                          Reset zoom
+                        </button>
+                      </div>
+                      {a && b && b.sessionId !== "optimal" && (
+                        <BrakingComparison
+                          a={a}
+                          b={b}
+                          pairs={brakePairs}
+                          open={showBrakePoints}
+                          onOpen={setShowBrakePoints}
+                          onFocus={(pair) => {
+                            const starts = [
+                              pair.a?.start,
+                              pair.b?.start,
+                            ].filter((n): n is number => n !== undefined);
+                            const ends = [pair.a?.end, pair.b?.end].filter(
+                              (n): n is number => n !== undefined,
+                            );
+                            setRange([
+                              Math.max(0, Math.min(...starts) - 120),
+                              Math.min(a.length, Math.max(...ends) + 120),
+                            ]);
+                            moveCursor(pair.a?.start ?? pair.b!.start);
+                            setPlaying(false);
+                          }}
+                        />
+                      )}
+                      {showVideos && (
+                        <div
+                          className="videos"
+                          style={
+                            {
+                              "--video-height": `${settings.videoHeight}px`,
+                            } as React.CSSProperties
+                          }
+                        >
+                          <VideoPanel
+                            label="LAP A"
+                            session={sa}
+                            stamp={at}
+                            binding={sync.bindings.find(
+                              (b) => b.session.sha256 === sa?.id,
+                            )}
+                            onBinding={updateBinding}
+                            files={files}
+                            setFiles={setFiles}
+                            sourceFiles={sourceFiles}
+                            setSourceFiles={setSourceFiles}
+                            onBusy={setBusyA}
+                            onPause={() => setPlaying(false)}
+                            onGoTo={goTo}
+                            lapStart={a?.lap.start}
+                            lapDuration={
+                              a ? a.lap.end - a.lap.start : undefined
+                            }
+                            onJumpLap={(ms) => a && goTo(a.lap.start + ms)}
+                            onUnlink={() =>
+                              setSync((s) => ({
+                                ...s,
+                                bindings: s.bindings.filter(
+                                  (b) => b.session.sha256 !== sa?.id,
+                                ),
+                              }))
+                            }
+                            playbackRate={playbackRate}
+                            playing={playing && !busyB}
+                          />
+                          <VideoPanel
+                            label="LAP B"
+                            session={videoSessionB}
+                            stamp={videoStampB}
+                            lapStart={
+                              optimalSource
+                                ? optimalSource.source.lap.start
+                                : b?.lap.start
+                            }
+                            binding={sync.bindings.find(
+                              (b) => b.session.sha256 === videoSessionB?.id,
+                            )}
+                            onBinding={updateBinding}
+                            files={files}
+                            setFiles={setFiles}
+                            sourceFiles={sourceFiles}
+                            setSourceFiles={setSourceFiles}
+                            onBusy={setBusyB}
+                            onPause={() => setPlaying(false)}
+                            onUnlink={() =>
+                              setSync((s) => ({
+                                ...s,
+                                bindings: s.bindings.filter(
+                                  (b) => b.session.sha256 !== videoSessionB?.id,
+                                ),
+                              }))
+                            }
+                            playbackRate={playbackRate}
+                            playing={playing && !busyA}
+                          />
+                        </div>
+                      )}
+                      {showVideos && (
+                        <label className="video-size">
+                          Video panel height{" "}
                           <input
-                            type="checkbox"
-                            checked={!!settings.showEmptyCharts}
+                            aria-label="Video height"
+                            type="range"
+                            min="180"
+                            max="500"
+                            value={settings.videoHeight}
                             onChange={(e) =>
-                              patch({ showEmptyCharts: e.target.checked })
+                              patch({ videoHeight: +e.target.value })
                             }
                           />
-                          Show empty charts ({emptyChartCount})
                         </label>
                       )}
-                      <select
-                        aria-label="Add chart"
-                        value=""
-                        onChange={(e) =>
-                          patch({
-                            charts: [
-                              ...settings.charts,
-                              {
-                                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                                channels: [e.target.value],
-                                height: 130,
-                              },
-                            ],
-                          })
-                        }
-                      >
-                        <option value="">+ Add chart</option>
-                        {[...channelsWithData].map((k) => (
-                          <option key={k} value={k}>
-                            {definitions[k]?.name || k}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  {visibleCharts.map(({ chart: c, index: i }, visibleIndex) => (
-                    <Chart
-                      key={c.id}
-                      config={c}
-                      a={displayTraces[0]!}
-                      others={comparisons}
-                      colors={settings.colors}
-                      speedUnit={settings.speedUnit}
-                      joins={
-                        [b, ...extraLaps.map((x) => x.trace)].some(
-                          (t) => t?.id === "optimal",
-                        )
-                          ? gates.slice(1, -1)
-                          : []
-                      }
-                      cursor={cursor}
-                      range={range}
-                      onCursor={moveCursor}
-                      onZoom={setRange}
-                      length={a.length}
-                      onRange={(r) => {
-                        setRange(r);
-                        moveCursor(r[0]);
-                        setPlaying(false);
-                      }}
-                      onChange={(next) =>
-                        patch({
-                          charts: settings.charts.map((x) =>
-                            x.id === c.id ? next : x,
-                          ),
-                        })
-                      }
-                      onRemove={() =>
-                        patch({
-                          charts: settings.charts.filter((x) => x.id !== c.id),
-                        })
-                      }
-                      onUp={() => {
-                        const next = [...settings.charts];
-                        if (visibleIndex) {
-                          const previous =
-                            visibleCharts[visibleIndex - 1].index;
-                          [next[previous], next[i]] = [next[i], next[previous]];
-                        }
-                        patch({ charts: next });
-                      }}
-                    />
-                  ))}
-                  <div className="footnote">
-                    GPS-derived alignment · Missing samples remain gaps · Brake
-                    pressure is unavailable unless recorded
-                  </div>
+                      {tab === "Video sync" && (
+                        <div className="notice">
+                          <span>
+                            Download timing only. Session and video filenames,
+                            SHA-256 hashes, clip order, and anchors are
+                            included. No recording data.
+                          </span>
+                          <button
+                            onClick={() =>
+                              download(
+                                "track-day.rcsync.json",
+                                JSON.stringify(sync, null, 2),
+                              )
+                            }
+                          >
+                            <ArrowDownToLine size={14} /> Download sync file
+                          </button>
+                        </div>
+                      )}
+                      <div className="section-heading">
+                        <h2>
+                          Telemetry{" "}
+                          <span>
+                            {visibleCharts.length}{" "}
+                            {visibleCharts.length === 1 ? "chart" : "charts"}
+                          </span>
+                        </h2>
+                        <div>
+                          <small>Drag a chart to zoom into a section</small>
+                          {emptyChartCount > 0 && (
+                            <label className="empty-chart-toggle">
+                              <input
+                                type="checkbox"
+                                checked={!!settings.showEmptyCharts}
+                                onChange={(e) =>
+                                  patch({ showEmptyCharts: e.target.checked })
+                                }
+                              />
+                              Show empty charts ({emptyChartCount})
+                            </label>
+                          )}
+                          <select
+                            aria-label="Add chart"
+                            value=""
+                            onChange={(e) =>
+                              patch({
+                                charts: [
+                                  ...settings.charts,
+                                  {
+                                    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                                    channels: [e.target.value],
+                                    height: 130,
+                                  },
+                                ],
+                              })
+                            }
+                          >
+                            <option value="">+ Add chart</option>
+                            {[...channelsWithData].map((k) => (
+                              <option key={k} value={k}>
+                                {definitions[k]?.name || k}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      {visibleCharts.map(
+                        ({ chart: c, index: i }, visibleIndex) => (
+                          <Chart
+                            key={c.id}
+                            config={c}
+                            a={displayTraces[0]!}
+                            others={comparisons}
+                            colors={settings.colors}
+                            speedUnit={settings.speedUnit}
+                            joins={
+                              [b, ...extraLaps.map((x) => x.trace)].some(
+                                (t) => t?.id === "optimal",
+                              )
+                                ? gates.slice(1, -1)
+                                : []
+                            }
+                            cursor={cursor}
+                            range={range}
+                            onCursor={moveCursor}
+                            onZoom={setRange}
+                            length={a.length}
+                            onRange={(r) => {
+                              setRange(r);
+                              moveCursor(r[0]);
+                              setPlaying(false);
+                            }}
+                            onChange={(next) =>
+                              patch({
+                                charts: settings.charts.map((x) =>
+                                  x.id === c.id ? next : x,
+                                ),
+                              })
+                            }
+                            onRemove={() =>
+                              patch({
+                                charts: settings.charts.filter(
+                                  (x) => x.id !== c.id,
+                                ),
+                              })
+                            }
+                            onUp={() => {
+                              const next = [...settings.charts];
+                              if (visibleIndex) {
+                                const previous =
+                                  visibleCharts[visibleIndex - 1].index;
+                                [next[previous], next[i]] = [
+                                  next[i],
+                                  next[previous],
+                                ];
+                              }
+                              patch({ charts: next });
+                            }}
+                          />
+                        ),
+                      )}
+                      <div className="footnote">
+                        GPS-derived alignment · Missing samples remain gaps ·
+                        Brake pressure is unavailable unless recorded
+                      </div>
+                    </>
+                  )}
                 </>
               )}
               {tab === "Race Engineer" && (

@@ -39,6 +39,9 @@ export type AgentHost = {
     range: number[];
     cursor: number;
     channels: unknown;
+    analysisLayout?: string;
+    chartInteraction?: string;
+    visibleComparisonLapIds?: string[];
     playing: boolean;
     detectedTurns?: DetectedTurn[];
     selectedTurn?: string | null;
