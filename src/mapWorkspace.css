@@ -1,0 +1,276 @@
+/* Keep controls in a rail outside the interactive canvas at every screen size. */
+.map-workspace {
+  display: flex;
+  flex-direction: column;
+}
+.map-workspace > .map,
+.map-3d-stage {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.map-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+  background: #15232b;
+  border-bottom: 1px solid #35464e;
+}
+.map-toolbar-title {
+  margin-right: auto;
+  color: #adc2ca;
+  font-size: 11px;
+}
+.map-toolbar button,
+.control-dialog button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #42565f;
+  border-radius: 8px;
+  background: #21323c;
+  color: #e3edef;
+  font-size: 12px;
+}
+.map-toolbar button[aria-pressed="true"],
+.control-dialog button[aria-pressed="true"] {
+  border-color: #ff965e;
+  background: #493026;
+  color: #ffc6a8;
+}
+.control-dialog-trigger {
+  flex-shrink: 0;
+}
+.control-dialog {
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid #526970;
+  border-radius: 16px;
+  color: #e3edef;
+  background: #17272f;
+  box-shadow: 0 24px 80px #0008;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.control-dialog::backdrop {
+  background: #050d14b8;
+}
+.control-dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #354b55;
+  position: sticky;
+  top: 0;
+  background: #17272f;
+  z-index: 1;
+}
+.control-dialog-heading h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.control-dialog-heading button {
+  width: 44px;
+  padding: 8px;
+}
+.control-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+}
+.control-dialog .map-tools,
+.control-dialog .map-camera-tools,
+.control-dialog .map-legend,
+.control-dialog .map-resize,
+.control-dialog .track-3d-legend {
+  position: static;
+  max-width: none;
+  max-height: none;
+  width: auto;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  font-size: 12px;
+  overflow: visible;
+  text-align: left;
+  pointer-events: auto;
+}
+.control-dialog .map-tools label,
+.control-dialog .map-resize label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.control-dialog input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: #ff965e;
+}
+.control-dialog input[type="range"] {
+  min-height: 44px;
+  flex: 1;
+  accent-color: #ff965e;
+}
+.control-dialog .map-legend {
+  border-top: 1px solid #354b55;
+  padding-top: 16px;
+}
+.control-dialog .map-legend span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.control-dialog .scale {
+  line-height: 1.6;
+}
+.control-dialog .elevation-control {
+  width: auto;
+}
+.control-dialog .drive-header-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+.control-dialog .drive-header-status:empty {
+  display: none;
+}
+.map-3d-stage {
+  position: relative;
+}
+.map-workspace .track-3d-readout {
+  position: static;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 10px;
+  text-align: left;
+  background: #15232b;
+  border-top: 1px solid #35464e;
+}
+.map-workspace .track-3d-readout strong {
+  font-size: 15px;
+}
+.map-workspace .leaflet-control-zoom {
+  margin: 8px 8px 20px 0;
+}
+.map-workspace .leaflet-control-zoom a {
+  width: 44px;
+  height: 44px;
+  line-height: 44px;
+}
+.map-toolbar button:focus-visible,
+.control-dialog button:focus-visible {
+  outline: 2px solid #ffb086;
+  outline-offset: 2px;
+}
+@media (max-width: 520px) {
+  .map-toolbar {
+    padding: 4px 6px;
+    gap: 4px;
+  }
+  .map-toolbar-title {
+    display: none;
+  }
+  .map-toolbar > button:first-of-type {
+    margin-right: auto;
+  }
+  .map-toolbar button {
+    padding: 6px 10px;
+  }
+  .control-dialog {
+    margin-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .app > main > header {
+    padding: 10px 16px;
+    min-height: 64px;
+  }
+  .app .header-actions {
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+  }
+  .app .header-actions > button,
+  .app .header-actions > .control-dialog-trigger > button {
+    min-height: 44px;
+    font-size: 12px;
+  }
+}
+
+.map-compact .control-dialog .map-resize {
+  display: none;
+}
+.map-workspace .leaflet-control-attribution {
+  max-width: none;
+  font-size: 8px !important;
+}
+@media (min-width: 851px) {
+  .analysis-workspace .content {
+    padding-top: 22px;
+  }
+  .analysis-workspace .page-title {
+    margin-bottom: 16px;
+  }
+  .analysis-workspace .stats {
+    margin-bottom: 16px;
+  }
+  .analysis-workspace .stats > div {
+    padding: 14px 20px;
+  }
+  .analysis-workspace .stats strong {
+    font-size: 26px;
+    margin-block: 6px;
+  }
+}
+
+.header-actions > .control-dialog-trigger > button {
+  color: var(--lab-ink);
+}
+.header-actions .control-dialog button:hover {
+  background: #2c424e;
+  color: #fff;
+}
+
+.map-workspace {
+  container-type: inline-size;
+}
+@container (max-width: 440px) {
+  .map-toolbar-title {
+    display: none;
+  }
+}
+@container (max-width: 300px) {
+  .map-follow-label {
+    display: none;
+  }
+  .map-toolbar button {
+    padding-inline: 8px;
+  }
+}
+
+@media (max-width: 520px) {
+  .header-actions .agent-pill {
+    width: 44px;
+    min-height: 44px;
+    padding: 8px;
+  }
+  .header-actions .agent-pill > span[aria-live] {
+    display: none;
+  }
+}

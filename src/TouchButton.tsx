@@ -14,18 +14,22 @@ function installTouchDeduplication() {
     },
     true,
   );
-  document.addEventListener(
-    "click",
-    (e) => {
-      const pointer = e as PointerEvent;
-      const keyboard = e.detail === 0 && !pointer.pointerType;
-      if (!keyboard && handledTouchAt && Date.now() - handledTouchAt < 700) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-      }
-    },
-    true,
-  );
+  // Compatibility mousedown can focus a control exposed by a closing sheet,
+  // even when the later click is suppressed. Block both events from that touch.
+  for (const type of ["mousedown", "click"] as const)
+    document.addEventListener(
+      type,
+      (e) => {
+        const pointer = e as PointerEvent;
+        const keyboard =
+          type === "click" && e.detail === 0 && !pointer.pointerType;
+        if (!keyboard && handledTouchAt && Date.now() - handledTouchAt < 700) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
 }
 // Some mobile browsers suppress compatibility clicks after a captured drag.
 // Activate on touch pointer-up; retain normal mouse, keyboard and assistive clicks.

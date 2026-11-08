@@ -1,3 +1,4 @@
+import { ControlDialog } from "./ControlDialog";
 import { TouchButton } from "./TouchButton";
 import { MobileAnalysis } from "./MobileAnalysis";
 import { useCompactAnalysis } from "./mobileAnalysis";
@@ -1298,7 +1299,7 @@ export default function App() {
   };
   return (
     <div
-      className={`app ${compactAnalysis && tab === "Analyze" && a ? "mobile-analysis-active" : ""}`}
+      className={`app ${tab === "Analyze" ? "analysis-workspace" : ""} ${compactAnalysis && tab === "Analyze" && a ? "mobile-analysis-active" : ""}`}
     >
       <GoogleDriveDialog
         open={driveOpen}
@@ -1472,40 +1473,57 @@ export default function App() {
               <span className="live-dot" />{" "}
               {saving ? "Saving…" : "Saved locally"}
             </span>
-            <button onClick={() => exportProject(settings, sync).catch(report)}>
-              <ArrowDownToLine size={14} /> Download session file
-            </button>
-            <div className="drive-header-actions">
-              <button onClick={() => setDriveOpen(true)}>
-                <Cloud size={14} /> Google Drive
-              </button>
-              <button
-                disabled={drive.busy || !ready}
-                className={drive.connected ? "primary" : ""}
-                onClick={() => {
-                  if (drive.connected && drive.preferences.target)
-                    void drive.save();
-                  else setDriveOpen(true);
-                }}
-              >
-                <Cloud size={14} />{" "}
-                {drive.busy ? "Drive working…" : "Save to Drive"}
-              </button>
-              <span className="drive-header-status" role="status">
-                {drive.error ||
-                  (drive.preferences.target
-                    ? !drive.connected
-                      ? "Reconnect to save"
-                      : drive.preferences.autoSave
-                        ? drive.dirty
-                          ? "Autosave pending"
-                          : "Saved to Drive · Auto"
-                        : drive.dirty
-                          ? "Drive changes pending"
-                          : "Saved to Drive"
-                    : "")}
-              </span>
-            </div>
+            <ControlDialog label="Files & sync">
+              {(close) => (
+                <>
+                  <button
+                    onClick={() => {
+                      close();
+                      void exportProject(settings, sync).catch(report);
+                    }}
+                  >
+                    <ArrowDownToLine size={14} /> Download session file
+                  </button>
+                  <div className="drive-header-actions">
+                    <button
+                      onClick={() => {
+                        close();
+                        setDriveOpen(true);
+                      }}
+                    >
+                      <Cloud size={14} /> Google Drive
+                    </button>
+                    <button
+                      disabled={drive.busy || !ready}
+                      className={drive.connected ? "primary" : ""}
+                      onClick={() => {
+                        close();
+                        if (drive.connected && drive.preferences.target)
+                          void drive.save();
+                        else setDriveOpen(true);
+                      }}
+                    >
+                      <Cloud size={14} />{" "}
+                      {drive.busy ? "Drive working…" : "Save to Drive"}
+                    </button>
+                    <span className="drive-header-status" role="status">
+                      {drive.error ||
+                        (drive.preferences.target
+                          ? !drive.connected
+                            ? "Reconnect to save"
+                            : drive.preferences.autoSave
+                              ? drive.dirty
+                                ? "Autosave pending"
+                                : "Saved to Drive · Auto"
+                              : drive.dirty
+                                ? "Drive changes pending"
+                                : "Saved to Drive"
+                          : "")}
+                    </span>
+                  </div>
+                </>
+              )}
+            </ControlDialog>
             <button className="primary" onClick={() => input.current?.click()}>
               <Plus size={15} /> Import sessions
             </button>

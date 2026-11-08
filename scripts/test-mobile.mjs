@@ -420,15 +420,38 @@ try {
       await page.getByRole("button", { name: "Reset telemetry zoom" }).tap();
     }
     assert.equal(
-      await page.locator(".map-legend").count(),
+      await page.locator("dialog[open] .map-legend").count(),
       0,
       `${name}: legend collapsed`,
+    );
+    const rail = await page.locator(".map-toolbar").boundingBox();
+    const canvas = await page.locator(".ma-map-box .map").boundingBox();
+    assert(
+      rail.y + rail.height <= canvas.y + 1,
+      `${name}: toolbar stays outside the map`,
     );
     await page.getByRole("button", { name: "Layers", exact: true }).tap();
     await page
       .getByRole("button", { name: "Speed colours", exact: true })
       .tap();
-    await page.getByRole("button", { name: "Layers", exact: true }).tap();
+    await page
+      .getByRole("button", { name: "Close Map layers & camera", exact: true })
+      .tap();
+    assert.equal(
+      await page.locator("dialog.control-dialog[open]").count(),
+      0,
+      "Map controls dismiss completely",
+    );
+    await page.waitForFunction(
+      () => document.activeElement?.textContent === "Layers",
+      null,
+      { timeout: 2000 },
+    );
+    assert.equal(
+      await page.evaluate(() => document.activeElement?.textContent),
+      "Layers",
+      "Focus returns to Layers",
+    );
     await page.getByRole("button", { name: "Choose lap B", exact: true }).tap();
     await page.getByRole("dialog", { name: "Select lap B" }).waitFor();
     if (name === "phone") await snapshot(page, "phone-lap-picker");
@@ -674,7 +697,9 @@ try {
     await caption("Layers and legends stay out of the way until needed");
     await page.getByRole("button", { name: "Layers", exact: true }).tap();
     await wait(1300);
-    await page.getByRole("button", { name: "Layers", exact: true }).tap();
+    await page
+      .getByRole("button", { name: "Close Map layers & camera", exact: true })
+      .tap();
     await caption("Resize the map / telemetry split with the divider");
     const r = await page.getByRole("separator").boundingBox();
     await swipe(

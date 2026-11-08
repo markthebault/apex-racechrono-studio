@@ -7,10 +7,12 @@ Analyze uses a compact workspace on narrow screens and devices with a coarse pri
 - Use **two fingers** to slide the timeline or pinch to zoom, anchored at the midpoint between your fingers. Both gestures work together and across channel rows. Lifting one finger after a pinch keeps the playhead still until both fingers lift. There are no gesture modes to switch. **Full** resets the window; Analysis options includes alternative zoom buttons for accessibility.
 - Swipe vertically over telemetry to scroll extra channels. The map and lap selectors stay visible. **Channels** chooses up to eight available signals, with independent mobile preferences.
 - Drag the divider to resize the panes. The divider also supports arrow keys. The split and channel choices are remembered locally.
-- **Layers** reveals map legends, turn labels and color options. **Follow car** keeps the current position centered; dragging the map stops following.
+- Map controls sit in a toolbar above the canvas. **Fit track** restores the selected distance range after panning or zooming. **Follow car** keeps the current position centered; dragging the map stops following. **Layers** opens a scrollable dialog for legends, turn labels, speed colors, braking zones and **Zoom to car**. Close it with the close button, Escape or a backdrop tap. The 3D view uses the same toolbar and dialog layout for elevation settings. Notices and the track/video caption stay outside the canvas.
 - The turn selector uses the same catalogue as Analyze and MCP. GPS quality warnings remain visible for flagged laps. UI telemetry colors, comparison alignment, speed units and snapshot rules are unchanged.
 - **Video** reveals linked local clips above the map. Videos follow the selected position and comparison alignment, with sound initially off. Missing clips and gaps are indicated explicitly. Link/synchronize clips in **Video sync**. No recording is uploaded by this UI.
 - Analysis options include playback speed, alignment, units, agent connection and links to the existing video setup and legal pages. **Open full analysis tools** retains access to 3D, additional laps, overlays and the other existing analysis controls; **Touch workspace** returns to the compact layout. MCP state identifies the touch layout, visible channel list, comparison IDs and gesture mode.
+
+**Files & sync** groups project downloads and Google Drive actions in the page header. On phones, the agent connection uses an icon with an accessible connection-status label.
 
 ## Local verification
 

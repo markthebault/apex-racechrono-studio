@@ -1,3 +1,4 @@
+import { ControlDialog } from "./ControlDialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -527,48 +528,93 @@ export default function Track3D({
     ? atDistance(a, a.channels.altitude, cursor)
     : NaN;
   return (
-    <div className="map-shell map-3d" style={{ height }}>
-      <div ref={el} className="map-3d-canvas" />
-      <div className="map-tag">
-        <span className="live-dot" /> ELEVATION VIEW <span>Recorded GPS</span>
-      </div>
-      {error && (
-        <div className="track-3d-error" role="alert">
-          {error}
-        </div>
-      )}
-      {!frame && <div className="track-3d-error">No GPS trace available.</div>}
-      <div className="map-tools track-3d-tools">
-        <button
-          aria-pressed={showSpeed}
-          disabled={!a?.channels.speed}
-          onClick={() => setShowSpeed(!showSpeed)}
-        >
-          <i className="speed" />
-          Speed colours
-        </button>
-        <button
-          aria-pressed={showBrake}
-          disabled={!a || (!recorded && !a.channels.acceleration)}
-          onClick={() => setShowBrake(!showBrake)}
-        >
-          <i className="brake" />
-          Braking zones
-        </button>
-        <label className="elevation-control">
-          Elevation <b>{exaggeration}×</b>
-          <input
-            aria-label="Elevation exaggeration"
-            type="range"
-            min="1"
-            max="5"
-            step=".5"
-            value={exaggeration}
-            disabled={!frame?.hasElevation}
-            onChange={(e) => setExaggeration(+e.target.value)}
-          />
-        </label>
+    <div className="map-shell map-3d map-workspace" style={{ height }}>
+      <div className="map-toolbar" role="group" aria-label="3D map controls">
+        <span className="map-toolbar-title">GPS elevation</span>
         <button onClick={() => reset.current()}>Reset camera</button>
+        <ControlDialog label="Layers" title="3D layers & elevation">
+          <div className="map-tools track-3d-tools">
+            <button
+              aria-pressed={showSpeed}
+              disabled={!a?.channels.speed}
+              onClick={() => setShowSpeed(!showSpeed)}
+            >
+              <i className="speed" />
+              Speed colours
+            </button>
+            <button
+              aria-pressed={showBrake}
+              disabled={!a || (!recorded && !a.channels.acceleration)}
+              onClick={() => setShowBrake(!showBrake)}
+            >
+              <i className="brake" />
+              Braking zones
+            </button>
+            <label className="elevation-control">
+              Elevation <b>{exaggeration}×</b>
+              <input
+                aria-label="Elevation exaggeration"
+                type="range"
+                min="1"
+                max="5"
+                step=".5"
+                value={exaggeration}
+                disabled={!frame?.hasElevation}
+                onChange={(e) => setExaggeration(+e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="track-3d-legend">
+            {showSpeed && (
+              <div className="scale">
+                <div className="speed-ramp" />
+                <span>
+                  {SPEED_SCALE.map((v) =>
+                    Math.round(speedUnit === "mph" ? v / 1.609344 : v),
+                  ).join(" · ")}{" "}
+                  {speedUnit}
+                </span>
+              </div>
+            )}
+            {showBrake && (
+              <div className="scale">
+                <div className="brake-ramp" />
+                <span>
+                  {recorded
+                    ? "Recorded brake"
+                    : "Braking inferred from GPS speed"}{" "}
+                  · light to hard
+                </span>
+              </div>
+            )}
+            <span>Drag to orbit · scroll to zoom · click track to seek</span>
+            <span>Track width and cars enlarged for visibility</span>
+          </div>
+          <div className="map-resize">
+            <label>
+              Map height{" "}
+              <input
+                aria-label="Map height"
+                type="range"
+                min="240"
+                max="650"
+                value={height}
+                onChange={(e) => onHeight(+e.target.value)}
+              />
+            </label>
+          </div>
+        </ControlDialog>
+      </div>
+      <div className="map-3d-stage">
+        <div ref={el} className="map-3d-canvas" />
+        {error && (
+          <div className="track-3d-error" role="alert">
+            {error}
+          </div>
+        )}
+        {!frame && (
+          <div className="track-3d-error">No GPS trace available.</div>
+        )}
       </div>
       <div className="track-3d-readout">
         <strong>
@@ -584,43 +630,6 @@ export default function Track3D({
         {frame?.partialElevation && (
           <span>Missing altitude sections are omitted</span>
         )}
-      </div>
-      <div className="track-3d-legend">
-        {showSpeed && (
-          <div className="scale">
-            <div className="speed-ramp" />
-            <span>
-              {SPEED_SCALE.map((v) =>
-                Math.round(speedUnit === "mph" ? v / 1.609344 : v),
-              ).join(" · ")}{" "}
-              {speedUnit}
-            </span>
-          </div>
-        )}
-        {showBrake && (
-          <div className="scale">
-            <div className="brake-ramp" />
-            <span>
-              {recorded ? "Recorded brake" : "Braking inferred from GPS speed"}{" "}
-              · light to hard
-            </span>
-          </div>
-        )}
-        <span>Drag to orbit · scroll to zoom · click track to seek</span>
-        <span>Track width and cars enlarged for visibility</span>
-      </div>
-      <div className="map-resize">
-        <label>
-          Map height{" "}
-          <input
-            aria-label="Map height"
-            type="range"
-            min="240"
-            max="650"
-            value={height}
-            onChange={(e) => onHeight(+e.target.value)}
-          />
-        </label>
       </div>
     </div>
   );
