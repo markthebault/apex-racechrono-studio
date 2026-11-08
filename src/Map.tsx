@@ -1,3 +1,4 @@
+import { ControlDialog } from "./ControlDialog";
 import { TouchButton } from "./TouchButton";
 import type { DetectedTurn } from "./turns";
 import { useEffect, useRef, useState } from "react";
@@ -85,7 +86,6 @@ export function TrackMap({
   const [viewMode, setViewMode] = useState<"range" | "free" | "follow">(
     "range",
   );
-  const [optionsOpen, setOptionsOpen] = useState(false);
   const [turnLabels, setTurnLabels] = useState(!compact);
   const changingView = useRef(false);
   const carPosition = a
@@ -104,6 +104,7 @@ export function TrackMap({
     changingView.current = false;
   }
   // Distance under the pointer on a chart. Ghost cars mark it on every lap.
+  const [fitRevision, setFitRevision] = useState(0);
   const [ghost, setGhost] = useState<number | null>(null);
   // Lap A can be coloured by speed and have its braking zones marked in red.
   const [showSpeed, setShowSpeed] = useState(false),
@@ -153,7 +154,12 @@ export function TrackMap({
     ghosts.current = L.layerGroup().addTo(m);
     brakingMarkers.current = L.layerGroup().addTo(m);
     turnMarkers.current = L.layerGroup().addTo(m);
-    const observer = new ResizeObserver(() => m.invalidateSize());
+    const observer = new ResizeObserver(() => {
+      changingView.current = true;
+      m.invalidateSize({ pan: false });
+      changingView.current = false;
+      setFitRevision((n) => n + 1);
+    });
     observer.observe(el.current!);
     return () => {
       observer.disconnect();
@@ -302,7 +308,7 @@ export function TrackMap({
     if (wait <= 0) fit();
     else fitTimer.current = setTimeout(fit, wait);
     return () => clearTimeout(fitTimer.current);
-  }, [a, range[0], range[1], viewMode]);
+  }, [a, range[0], range[1], viewMode, height, fitRevision]);
   useEffect(() => {
     // A different lap gets an overview unless the user is following its car.
     setViewMode((mode) => (mode === "follow" ? mode : "range"));
@@ -395,136 +401,141 @@ export function TrackMap({
   const recorded = a ? brakeSignal(a).recorded : false;
   return (
     <div
-      className={`map-shell ${compact ? "map-compact" : ""} ${optionsOpen ? "map-options-open" : ""}`}
+      className={`map-shell map-workspace ${compact ? "map-compact" : ""}`}
       style={{ height }}
     >
-      {compact && (
-        <Button
-          className="map-options-toggle"
-          aria-expanded={optionsOpen}
-          onClick={() => setOptionsOpen(!optionsOpen)}
-        >
-          Layers
-        </Button>
-      )}
+      <div className="map-toolbar" role="group" aria-label="Map controls">
+        <span className="map-toolbar-title">GPS trace</span>
+        {a && (
+          <>
+            <Button
+              onClick={() => {
+                setViewMode("range");
+                setFitRevision((n) => n + 1);
+              }}
+              title="Fit the selected distance range"
+            >
+              Fit track
+            </Button>
+            <Button
+              type="button"
+              disabled={!hasCar}
+              aria-pressed={viewMode === "follow"}
+              aria-label="Follow car"
+              title="Keep lap A's car centered. Drag the map to stop following."
+              onClick={() =>
+                setViewMode((mode) => (mode === "follow" ? "free" : "follow"))
+              }
+            >
+              <Navigation size={16} aria-hidden="true" />{" "}
+              <span className="map-follow-label">Follow car</span>
+            </Button>
+          </>
+        )}
+        <ControlDialog label="Layers" title="Map layers & camera">
+          {(close) => (
+            <>
+              <div className="map-camera-tools">
+                <Button
+                  disabled={!hasCar}
+                  onClick={() => {
+                    zoomToCar();
+                    close();
+                  }}
+                >
+                  <LocateFixed size={16} /> Zoom to car
+                </Button>
+              </div>
+              <div className="map-tools">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={turnLabels}
+                    onChange={(e) => setTurnLabels(e.target.checked)}
+                  />{" "}
+                  Turn labels
+                </label>
+                <Button
+                  type="button"
+                  aria-pressed={showBrake}
+                  disabled={!a || (!recorded && !a.channels.acceleration)}
+                  title={
+                    recorded
+                      ? "Mark where the brake channel of lap A is on"
+                      : `Mark where lap A brakes harder than ${-BRAKE_G} g and sheds at least ${Math.round(BRAKE_MIN_LOSS * 100)}% of its speed. Lifting off does not count.`
+                  }
+                  onClick={() => setShowBrake(!showBrake)}
+                >
+                  <i className="brake" />
+                  Braking zones
+                </Button>
+                {showBrake && (
+                  <div className="scale">
+                    <div className="brake-ramp" />
+                    <span>
+                      {recorded
+                        ? "Recorded brake channel · light red for a light touch, dark red for full braking"
+                        : `${-BRAKE_G} g · ${BRAKE_HARD} g · light red where braking fades, dark red where hardest`}
+                    </span>
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  aria-pressed={showSpeed}
+                  disabled={!a?.channels.speed}
+                  title="Colour lap A by speed"
+                  onClick={() => setShowSpeed(!showSpeed)}
+                >
+                  <i className="speed" />
+                  Speed colours
+                </Button>
+                {showSpeed && (
+                  <div className="scale">
+                    <div className="speed-ramp" />
+                    <span>
+                      {SPEED_SCALE.map((v) =>
+                        Math.round(speedUnit === "mph" ? v / 1.609344 : v),
+                      ).join(" – ")}{" "}
+                      {speedUnit} · red slow, blue fast
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="map-legend">
+                {[
+                  ...(a ? [[a, colors[0], "A"] as const] : []),
+                  ...others.map((o) => [o.trace, o.color, o.tag] as const),
+                ].map(([t, color, tag]) => (
+                  <span key={tag}>
+                    <i style={{ background: safe(color) }} />
+                    {tag} · {t.label}
+                  </span>
+                ))}
+                <span>
+                  <i className="brake" />
+                  {recorded
+                    ? "Braking (brake channel)"
+                    : `Braking below ${BRAKE_G} g`}
+                </span>
+              </div>
+              <div className="map-resize">
+                <label>
+                  Map height{" "}
+                  <input
+                    aria-label="Map height"
+                    type="range"
+                    min="240"
+                    max="650"
+                    value={height}
+                    onChange={(e) => onHeight(+e.target.value)}
+                  />
+                </label>
+              </div>
+            </>
+          )}
+        </ControlDialog>
+      </div>
       <div ref={el} className="map" />
-      <div className="map-tag">
-        <span className="live-dot" /> GPS TRACE <span>OpenStreetMap</span>
-      </div>
-      {a && (
-        <div className="map-camera-tools" role="group" aria-label="Map camera">
-          <Button
-            type="button"
-            disabled={!hasCar}
-            aria-pressed={viewMode === "follow"}
-            title="Keep lap A's car centered. Drag the map to stop following."
-            onClick={() =>
-              setViewMode((mode) => (mode === "follow" ? "free" : "follow"))
-            }
-          >
-            <Navigation size={16} aria-hidden="true" /> Follow car
-          </Button>
-          <Button
-            type="button"
-            disabled={!hasCar}
-            title="Center and zoom in on lap A's car"
-            onClick={zoomToCar}
-          >
-            <LocateFixed size={16} aria-hidden="true" /> Zoom to car
-          </Button>
-        </div>
-      )}
-      {a && (!compact || optionsOpen) && (
-        <div className="map-tools">
-          {compact && (
-            <label>
-              <input
-                type="checkbox"
-                checked={turnLabels}
-                onChange={(e) => setTurnLabels(e.target.checked)}
-              />{" "}
-              Turn labels
-            </label>
-          )}
-          <Button
-            type="button"
-            aria-pressed={showBrake}
-            disabled={!recorded && !a.channels.acceleration}
-            title={
-              recorded
-                ? "Mark where the brake channel of lap A is on"
-                : `Mark where lap A brakes harder than ${-BRAKE_G} g and sheds at least ${Math.round(BRAKE_MIN_LOSS * 100)}% of its speed. Lifting off does not count.`
-            }
-            onClick={() => setShowBrake(!showBrake)}
-          >
-            <i className="brake" />
-            Braking zones
-          </Button>
-          {showBrake && (
-            <div className="scale">
-              <div className="brake-ramp" />
-              <span>
-                {recorded
-                  ? "Recorded brake channel · light red for a light touch, dark red for full braking"
-                  : `${-BRAKE_G} g · ${BRAKE_HARD} g · light red where braking fades, dark red where hardest`}
-              </span>
-            </div>
-          )}
-          <Button
-            type="button"
-            aria-pressed={showSpeed}
-            disabled={!a.channels.speed}
-            title="Colour lap A by speed"
-            onClick={() => setShowSpeed(!showSpeed)}
-          >
-            <i className="speed" />
-            Speed colours
-          </Button>
-          {showSpeed && (
-            <div className="scale">
-              <div className="speed-ramp" />
-              <span>
-                {SPEED_SCALE.map((v) =>
-                  Math.round(speedUnit === "mph" ? v / 1.609344 : v),
-                ).join(" – ")}{" "}
-                {speedUnit} · red slow, blue fast
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-      {a && (!compact || optionsOpen) && (
-        <div className="map-legend">
-          {[
-            [a, colors[0], "A"] as const,
-            ...others.map((o) => [o.trace, o.color, o.tag] as const),
-          ].map(([t, color, tag]) => (
-            <span key={tag}>
-              <i style={{ background: safe(color) }} />
-              {tag} · {t.label}
-            </span>
-          ))}
-          <span>
-            <i className="brake" />
-            {recorded
-              ? "Braking (brake channel)"
-              : `Braking below ${BRAKE_G} g`}
-          </span>
-        </div>
-      )}
-      <div className="map-resize">
-        <label>
-          Map height{" "}
-          <input
-            aria-label="Map height"
-            type="range"
-            min="240"
-            max="650"
-            value={height}
-            onChange={(e) => onHeight(+e.target.value)}
-          />
-        </label>
-      </div>
     </div>
   );
 }

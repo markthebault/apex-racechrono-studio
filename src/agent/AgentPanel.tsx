@@ -376,6 +376,7 @@ export function AgentPanel({ host }: { host: AgentHost }) {
           if (!open) setSetupTab("simple");
           setOpen(!open);
         }}
+        aria-label={connectionLabel}
         aria-expanded={open}
         aria-controls="agent-connection-panel"
         title={
